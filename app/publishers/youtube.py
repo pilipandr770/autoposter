@@ -1,0 +1,146 @@
+import os
+import logging
+from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+from config import SESSION_FILES
+
+logger = logging.getLogger(__name__)
+SESSION = SESSION_FILES["youtube"]
+
+
+async def login_youtube(username: str, password: str) -> dict:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        ctx = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800},
+        )
+        page = await ctx.new_page()
+        try:
+            await page.goto("https://accounts.google.com/signin/v2/identifier", wait_until="networkidle")
+            await page.wait_for_timeout(1500)
+
+            await page.fill('input[type="email"]', username)
+            await page.click("#identifierNext")
+            await page.wait_for_timeout(2500)
+
+            await page.fill('input[type="password"]', password)
+            await page.click("#passwordNext")
+            await page.wait_for_timeout(5000)
+
+            # Ошибка
+            err = page.locator('[data-error-code], .o6cuMc, [jsname="B34EJ"]')
+            if await err.count() > 0:
+                return {"ok": False, "error": "Неверный логин или пароль Google"}
+
+            # 2FA check
+            url = page.url
+            if "challenge" in url or "signin/v2/challenge" in url:
+                return {"ok": False, "error": "2FA_REQUIRED"}
+
+            # Переходим в Studio
+            await page.goto("https://studio.youtube.com", wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(2000)
+
+            if "studio.youtube.com" not in page.url:
+                return {"ok": False, "error": "Не удалось перейти в YouTube Studio. Возможно нужна 2FA."}
+
+            os.makedirs(os.path.dirname(SESSION), exist_ok=True)
+            await ctx.storage_state(path=SESSION)
+            return {"ok": True}
+
+        except PWTimeout:
+            return {"ok": False, "error": "Таймаут входа в Google"}
+        except Exception as e:
+            logger.error(f"YouTube login: {e}")
+            return {"ok": False, "error": str(e)}
+        finally:
+            await browser.close()
+
+
+async def post_video(video_path: str, title: str, description: str) -> bool:
+    if not os.path.exists(SESSION):
+        logger.error("YouTube: session not found")
+        return False
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        ctx = await browser.new_context(
+            storage_state=SESSION,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            viewport={"width": 1280, "height": 800},
+        )
+        page = await ctx.new_page()
+        try:
+            await page.goto("https://studio.youtube.com", wait_until="networkidle")
+            await page.wait_for_timeout(2000)
+
+            # Кнопка CREATE
+            await page.click('ytcp-button#create-icon, [aria-label="CREATE"], [aria-label="Создать"]')
+            await page.wait_for_timeout(1000)
+
+            # Upload videos
+            upload = page.locator('tp-yt-paper-item').filter(has_text="Upload video").first
+            if not await upload.is_visible():
+                upload = page.locator('tp-yt-paper-item').filter(has_text="Загрузить").first
+            await upload.click()
+            await page.wait_for_timeout(2000)
+
+            # Выбрать файл
+            async with page.expect_file_chooser() as fc:
+                await page.click('[class*="file-picker"] button, ytcp-uploads-file-picker #select-files-button')
+            fc_val = await fc.value
+            await fc_val.set_files(video_path)
+
+            # Ждём появления формы редактирования
+            await page.wait_for_selector('#textbox', timeout=60000)
+            await page.wait_for_timeout(3000)
+
+            # Заголовок
+            title_box = page.locator('#textbox').first
+            await title_box.triple_click()
+            await title_box.type(title[:100], delay=30)
+
+            # Описание
+            desc_box = page.locator('#textbox').nth(1)
+            await desc_box.click()
+            await desc_box.type(description[:4500], delay=10)
+
+            await page.wait_for_timeout(1000)
+
+            # Не для детей
+            try:
+                radio = page.locator('tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]')
+                if await radio.is_visible():
+                    await radio.click()
+            except Exception:
+                pass
+
+            # Next x3
+            for i in range(3):
+                next_btn = page.locator('#next-button, ytcp-button#next-button')
+                if await next_btn.is_visible():
+                    await next_btn.click()
+                    await page.wait_for_timeout(2500)
+
+            # Public
+            try:
+                public = page.locator('tp-yt-paper-radio-button[name="PUBLIC"]')
+                if await public.is_visible():
+                    await public.click()
+                    await page.wait_for_timeout(1000)
+            except Exception:
+                pass
+
+            # Publish / Done
+            done_btn = page.locator('#done-button, ytcp-button#done-button')
+            await done_btn.click()
+            await page.wait_for_timeout(8000)
+
+            logger.info("YouTube: video published ✅")
+            return True
+
+        except Exception as e:
+            logger.error(f"YouTube post error: {e}", exc_info=True)
+            return False
+        finally:
+            await browser.close()

@@ -1,0 +1,20 @@
+# Данные (сессии, медиа, БД) — не включать в репозиторий
+data/sessions/
+data/media/
+data/db/
+
+# env файл с секретами
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp

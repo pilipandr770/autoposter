@@ -1,0 +1,6 @@
+aiogram==3.13.1
+playwright==1.47.0
+flask==3.0.3
+pydantic-settings==2.5.2
+yt-dlp==2024.9.27
+Pillow==10.4.0

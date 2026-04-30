@@ -1,0 +1,681 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoPoster</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0c0c12;--surface:#13131d;--card:#1a1a26;--border:#252535;
+  --text:#e2e2f0;--muted:#6b7280;--accent:#7c6ff7;--accent2:#5b9cf6;
+  --green:#22c55e;--red:#ef4444;--yellow:#f59e0b;--orange:#f97316;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+
+.titlebar{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+.dot{width:12px;height:12px;border-radius:50%}
+.dot-r{background:#ff5f56}.dot-y{background:#ffbd2e}.dot-g{background:#27c93f}
+.app-name{margin-left:10px;font-weight:700;font-size:15px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.live-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.layout{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 49px)}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:20px}
+.main{overflow-y:auto;padding:24px}
+
+.section-title{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+
+.source-card{background:linear-gradient(135deg,#010101,#1a0a0a);border:1px solid #2a1515;border-radius:12px;padding:16px}
+.source-label{font-size:11px;color:var(--muted);margin-bottom:4px}
+.tiktok-username{font-size:22px;font-weight:700;color:#ff2d55}
+.source-meta{font-size:12px;color:var(--muted);margin-top:6px}
+.interval-badge{display:inline-block;padding:3px 9px;background:rgba(122,122,255,.1);border:1px solid rgba(122,122,255,.2);border-radius:20px;font-size:11px;color:var(--accent)}
+
+.platform-item{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;align-items:center;gap:12px;transition:border-color .2s}
+.platform-item.ok{border-color:#1a3a2a;background:#121e18}
+.platform-item.err{border-color:#3a1515}
+.p-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.icon-ig{background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)}
+.icon-yt{background:#ff0000}
+.icon-fb{background:#1877f2}
+.icon-tg{background:#0088cc}
+.p-info{flex:1}
+.p-name{font-weight:600;font-size:14px}
+.p-sub{font-size:11px;color:var(--muted)}
+.p-status{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
+.status-on{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.25)}
+.status-off{background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+
+.btn-sm{width:100%;padding:9px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-primary:hover{opacity:.9}
+.btn-danger{background:transparent;color:var(--red);border:1px solid rgba(239,68,68,.25)}
+.btn-danger:hover{background:rgba(239,68,68,.08)}
+.btn-ghost{background:var(--card);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--accent)}
+.btn-sm:disabled{opacity:.5;cursor:not-allowed}
+.btn-green{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff}
+
+.main-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px}
+.card h3{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px}
+
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat{text-align:center;padding:12px;background:var(--surface);border-radius:10px}
+.stat-val{font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat-lbl{font-size:11px;color:var(--muted);margin-top:2px}
+
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:5px}
+.form-row input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px;outline:none;transition:border-color .2s}
+.form-row input:focus{border-color:var(--accent)}
+.form-row input::placeholder{color:#3a3a55}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
+.toggle{position:relative;width:40px;height:22px}
+.toggle input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:#2a2a3a;border-radius:22px;cursor:pointer;transition:.3s}
+.slider:before{content:"";position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+input:checked+.slider{background:var(--accent)}
+input:checked+.slider:before{transform:translateX(18px)}
+
+.browser-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px}
+.browser-toolbar{background:var(--surface);padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.browser-addr{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 12px;color:var(--muted);font-size:12px;font-family:monospace}
+.vnc-frame{width:100%;height:540px;border:none;background:#111}
+.vnc-placeholder{height:540px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--muted)}
+.platform-btns{display:flex;gap:8px;flex-wrap:wrap}
+.plat-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px}
+.plat-btn:hover{border-color:var(--accent);background:rgba(124,111,247,.1)}
+.plat-btn.active{border-color:var(--accent);background:rgba(124,111,247,.15);color:var(--accent)}
+
+.history-table{width:100%;border-collapse:collapse}
+.history-table th{text-align:left;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px;padding:8px 10px;border-bottom:1px solid var(--border)}
+.history-table td{padding:10px 10px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+.history-table tr:last-child td{border-bottom:none}
+.history-table tr:hover td{background:rgba(255,255,255,.02)}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot-ok{background:var(--green)}.dot-err{background:var(--red)}.dot-pend{background:var(--yellow)}
+.platform-badges{display:flex;gap:4px}
+.pb{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700}
+.pb-ig{background:rgba(220,39,67,.15);color:#f472b6}
+.pb-yt{background:rgba(255,0,0,.15);color:#ff6b6b}
+.pb-fb{background:rgba(24,119,242,.15);color:#60a5fa}
+.pb-tg{background:rgba(0,136,204,.15);color:#7dd3fc}
+.pb-off{background:rgba(107,114,128,.1);color:var(--muted);text-decoration:line-through}
+
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;width:360px;max-width:95vw}
+.modal h2{font-size:17px;font-weight:700;margin-bottom:6px}
+.modal p{font-size:13px;color:var(--muted);margin-bottom:20px}
+.modal-actions{display:flex;gap:10px;margin-top:20px}
+.modal-actions .btn-sm{flex:1}
+
+.toast-wrap{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:300}
+.toast{padding:12px 18px;border-radius:10px;font-size:13px;font-weight:500;animation:toastin .3s ease}
+.toast-s{background:#14532d;border:1px solid #166534;color:#86efac}
+.toast-e{background:#450a0a;border:1px solid #7f1d1d;color:#fca5a5}
+.toast-i{background:#1e3a5f;border:1px solid #1e40af;color:#93c5fd}
+@keyframes toastin{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+
+.flow-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:4px}
+.flow-title{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.flow-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.flow-arrow{color:var(--accent);font-weight:700}
+
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+  <span class="app-name">AutoPoster</span>
+  <div class="live-badge"><div class="live-dot"></div>Сервис активен</div>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <!-- TikTok Source -->
+    <div>
+      <div class="section-title">📹 Источник контента</div>
+      <div class="source-card">
+        <div class="source-label">TikTok аккаунт</div>
+        {% if cfg.tiktok_user %}
+        <div class="tiktok-username">@{{ cfg.tiktok_user }}</div>
+        <div class="source-meta">Проверка каждые <span class="interval-badge">{{ cfg.interval }} мин</span></div>
+        <div class="source-meta" style="color:#4ade80;margin-top:2px">✓ Публичный профиль — логин не нужен</div>
+        {% else %}
+        <div style="color:#f87171;font-size:13px;margin:8px 0">⚠️ Укажите @username в настройках</div>
+        {% endif %}
+        <button class="btn-sm btn-ghost" style="width:100%;margin-top:8px"
+          onclick="document.getElementById('settingsModal').classList.add('show')">&#9881;&#65039; Настроить</button>
+      </div>
+    </div>
+
+    <!-- Потоки контента -->
+    <div>
+      <div class="section-title">🔄 Потоки автопостинга</div>
+      <div class="flow-card">
+        <div class="flow-title">📹 TikTok → соцсети</div>
+        <div class="flow-row">TikTok <span class="flow-arrow">→</span> Instagram · YouTube · Facebook · Telegram</div>
+      </div>
+      <div class="flow-card" style="margin-top:8px">
+        <div class="flow-title">✈️ Telegram → соцсети</div>
+        <div class="flow-row">Telegram канал <span class="flow-arrow">→</span> Instagram · Facebook</div>
+      </div>
+    </div>
+
+    <!-- Platforms -->
+    <div>
+      <div class="section-title">🔗 Платформы назначения</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+
+        <!-- Instagram -->
+        <div class="platform-item {% if status.instagram %}ok{% else %}err{% endif %}">
+          <div class="p-icon icon-ig">📸</div>
+          <div class="p-info"><div class="p-name">Instagram</div><div class="p-sub">Reels</div></div>
+          <span class="p-status {% if status.instagram %}status-on{% else %}status-off{% endif %}">
+            {% if status.instagram %}✓ Активен{% else %}Offline{% endif %}
+          </span>
+        </div>
+        {% if not status.instagram %}
+        <button class="btn-sm btn-primary" onclick="connectViaBrowser('instagram', event)">🔗 Подключить Instagram</button>
+        {% else %}
+        <button class="btn-sm btn-danger" onclick="disconnect('instagram')">Отключить</button>
+        {% endif %}
+
+        <!-- YouTube -->
+        <div class="platform-item {% if status.youtube %}ok{% else %}err{% endif %}">
+          <div class="p-icon icon-yt">▶️</div>
+          <div class="p-info"><div class="p-name">YouTube</div><div class="p-sub">Видео + Shorts</div></div>
+          <span class="p-status {% if status.youtube %}status-on{% else %}status-off{% endif %}">
+            {% if status.youtube %}✓ Активен{% else %}Offline{% endif %}
+          </span>
+        </div>
+        {% if not status.youtube %}
+        <button class="btn-sm btn-primary" onclick="connectViaBrowser('youtube', event)">🔗 Подключить YouTube</button>
+        {% else %}
+        <button class="btn-sm btn-danger" onclick="disconnect('youtube')">Отключить</button>
+        {% endif %}
+
+        <!-- Facebook -->
+        <div class="platform-item {% if status.facebook %}ok{% else %}err{% endif %}">
+          <div class="p-icon icon-fb">📘</div>
+          <div class="p-info"><div class="p-name">Facebook</div><div class="p-sub">Reels + Видео</div></div>
+          <span class="p-status {% if status.facebook %}status-on{% else %}status-off{% endif %}">
+            {% if status.facebook %}✓ Активен{% else %}Offline{% endif %}
+          </span>
+        </div>
+        {% if not status.facebook %}
+        <button class="btn-sm btn-primary" onclick="connectViaBrowser('facebook', event)">🔗 Подключить Facebook</button>
+        {% else %}
+        <button class="btn-sm btn-danger" onclick="disconnect('facebook')">Отключить</button>
+        {% endif %}
+
+        <!-- Telegram -->
+        <div class="platform-item {% if status.telegram %}ok{% else %}err{% endif %}">
+          <div class="p-icon icon-tg">✈️</div>
+          <div class="p-info"><div class="p-name">Telegram</div><div class="p-sub">Канал (отправка + мониторинг)</div></div>
+          <span class="p-status {% if status.telegram %}status-on{% else %}status-off{% endif %}">
+            {% if status.telegram %}✓ Активен{% else %}Offline{% endif %}
+          </span>
+        </div>
+        {% if not status.telegram %}
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <input type="text" id="tg-token-input" placeholder="Токен бота (от @BotFather)"
+            style="padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;outline:none">
+          <input type="text" id="tg-channel-input" placeholder="@канал или -100xxxxxxxxxx"
+            style="padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;outline:none">
+          <button class="btn-sm btn-primary" onclick="connectTelegram(this)">Подключить Telegram</button>
+        </div>
+        {% else %}
+        <div style="font-size:11px;color:var(--muted);padding:2px 0">Канал: {{ cfg.tg_channel or '—' }}</div>
+        <button class="btn-sm btn-danger" onclick="disconnect('telegram')">Отключить Telegram</button>
+        {% endif %}
+
+      </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div>
+      <div class="section-title">⚡ Действия</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn-sm btn-green" onclick="checkNow()">🔍 Проверить TikTok сейчас</button>
+        <button class="btn-sm btn-ghost" onclick="document.getElementById('settingsModal').classList.add('show')">⚙️ Настройки</button>
+        <button class="btn-sm btn-danger" onclick="resetAll()" style="margin-top:4px">🗑️ Сбросить тестовые данные</button>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- Stats + Browser -->
+    <div class="main-grid">
+      <div class="card">
+        <h3>📊 Статистика</h3>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-val" id="total-count">—</div><div class="stat-lbl">Всего видео</div></div>
+          <div class="stat"><div class="stat-val" id="ig-count">—</div><div class="stat-lbl">Instagram</div></div>
+          <div class="stat"><div class="stat-val" id="yt-count">—</div><div class="stat-lbl">YouTube</div></div>
+          <div class="stat"><div class="stat-val" id="fb-count">—</div><div class="stat-lbl">Facebook</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🖥️ Встроенный браузер</h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:14px">
+          <strong>Как подключить:</strong> нажми кнопку платформы в сайдбаре или здесь →
+          в браузере ниже войди в аккаунт вручную →
+          нажми <strong style="color:#4ade80">💾 Сохранить сессию</strong>.
+        </p>
+        <div class="platform-btns">
+          <button class="plat-btn" onclick="openBrowser('instagram', event)">📸 Instagram</button>
+          <button class="plat-btn" onclick="openBrowser('youtube', event)">▶️ YouTube</button>
+          <button class="plat-btn" onclick="openBrowser('facebook', event)">📘 Facebook</button>
+          <button class="plat-btn" onclick="openBrowser('tiktok', event)">🎵 TikTok</button>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn-sm btn-green" id="save-session-btn" onclick="saveSession()" style="display:none">💾 Сохранить сессию</button>
+          <button class="btn-sm btn-ghost" id="close-browser-btn" onclick="closeBrowser()" style="display:none">✕ Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Browser Panel -->
+    <div class="browser-panel" id="browser-panel" style="display:none">
+      <div class="browser-toolbar">
+        <div class="live-dot"></div>
+        <div class="browser-addr" id="browser-addr">—</div>
+        <span id="browser-platform-label" style="font-size:12px;color:var(--muted)"></span>
+        <button class="btn-sm btn-ghost" style="width:auto;padding:5px 12px;font-size:12px" onclick="closeBrowser()">✕</button>
+      </div>
+      {% if vnc_ready %}
+      <iframe class="vnc-frame" id="vnc-frame"
+        src="http://{{ request.host.split(':')[0] }}:{{ vnc_port }}/vnc.html?autoconnect=1&resize=scale&show_dot=1">
+      </iframe>
+      {% else %}
+      <div class="vnc-placeholder">
+        <div style="font-size:48px;opacity:.3">🖥️</div>
+        <div>Встроенный браузер недоступен</div>
+        <div style="font-size:12px">Используй форму подключения ниже</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- History -->
+    <div class="card">
+      <h3>📋 История публикаций</h3>
+      <table class="history-table" id="history-table">
+        <thead>
+          <tr>
+            <th></th><th>Видео</th><th>Источник</th><th>Дата</th><th>Платформы</th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+<!-- CONNECT MODAL -->
+<div class="modal-overlay" id="connectModal">
+  <div class="modal">
+    <h2 id="modal-title">Подключить платформу</h2>
+    <p id="modal-desc">Войди в аккаунт чтобы начать публикацию</p>
+    <div id="modal-form-area">
+      <div class="form-row">
+        <label id="user-label">Логин / Email</label>
+        <input type="text" id="modal-username" placeholder="username" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label>Пароль</label>
+        <input type="password" id="modal-password" placeholder="••••••••" autocomplete="off">
+      </div>
+      <div class="form-row" id="twofa-row" style="display:none">
+        <label>Код 2FA / SMS</label>
+        <input type="text" id="modal-2fa" placeholder="123456" maxlength="8">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-sm btn-ghost" onclick="closeModal()">Отмена</button>
+      <button class="btn-sm btn-primary" id="modal-submit" onclick="submitConnect()">Подключить</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal" style="width:440px">
+    <h2>⚙️ Настройки</h2>
+    <p>Основные параметры сервиса</p>
+    <div class="form-row">
+      <label>TikTok @username</label>
+      <input type="text" id="s-tiktok" value="{{ cfg.tiktok_user }}" placeholder="your_tiktok">
+    </div>
+    <div class="form-row">
+      <label>Telegram Bot Token</label>
+      <input type="text" id="s-tg-token" value="{{ cfg.tg_token }}" placeholder="1234567890:AAF...">
+    </div>
+    <div class="form-row">
+      <label>Telegram Channel ID (для отправки)</label>
+      <input type="text" id="s-tg-channel" value="{{ cfg.tg_channel }}" placeholder="@channel или -100xxxxxxxxxx">
+    </div>
+    <div class="form-row">
+      <label>Интервал проверки TikTok (минуты)</label>
+      <input type="number" id="s-interval" value="{{ cfg.interval }}" min="5" max="1440">
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px">
+      <div class="section-title">TikTok → платформы</div>
+      <div class="toggle-row"><span>📸 Instagram</span><label class="toggle"><input type="checkbox" id="s-ig" {% if cfg.enable_instagram %}checked{% endif %}><span class="slider"></span></label></div>
+      <div class="toggle-row"><span>▶️ YouTube</span><label class="toggle"><input type="checkbox" id="s-yt" {% if cfg.enable_youtube %}checked{% endif %}><span class="slider"></span></label></div>
+      <div class="toggle-row"><span>📘 Facebook</span><label class="toggle"><input type="checkbox" id="s-fb" {% if cfg.enable_facebook %}checked{% endif %}><span class="slider"></span></label></div>
+      <div class="toggle-row"><span>✈️ Telegram</span><label class="toggle"><input type="checkbox" id="s-tg" {% if cfg.enable_telegram %}checked{% endif %}><span class="slider"></span></label></div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px">
+      <div class="section-title">Telegram → Instagram</div>
+      <div class="toggle-row">
+        <span>✈️ Telegram → 📸 Instagram</span>
+        <label class="toggle"><input type="checkbox" id="s-tg-to-ig" {% if cfg.enable_tg_to_ig %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span>✈️ Telegram → 📘 Facebook</span>
+        <label class="toggle"><input type="checkbox" id="s-tg-to-fb" {% if cfg.enable_tg_to_fb %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-sm btn-ghost" onclick="document.getElementById('settingsModal').classList.remove('show')">Отмена</button>
+      <button class="btn-sm btn-primary" onclick="saveSettings()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+let currentPlatform = null;
+let needs2fa = false;
+let currentBrowserPlatform = null;
+
+const PLATFORM_URLS = {
+  instagram: 'https://www.instagram.com/accounts/login/',
+  youtube:   'https://accounts.google.com/signin',
+  facebook:  'https://www.facebook.com/login',
+  tiktok:    'https://www.tiktok.com/login',
+};
+
+// ── История ──────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const res = await fetch('/api/history');
+  const data = await res.json();
+  const tbody = document.getElementById('history-body');
+
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Нет опубликованных видео</td></tr>';
+    return;
+  }
+
+  let total=0, ig=0, yt=0, fb=0;
+  tbody.innerHTML = data.map(v => {
+    total++;
+    if(v.posted_ig) ig++;
+    if(v.posted_yt) yt++;
+    if(v.posted_fb) fb++;
+    const date = v.created_at ? v.created_at.substring(0,16).replace('T',' ') : '—';
+    const src = v.tiktok_id.startsWith('tg_') ? '<span style="font-size:10px;color:var(--muted)">✈️ TG</span>' : '<span style="font-size:10px;color:var(--muted)">📹 TK</span>';
+    const igB = v.posted_ig ? '<span class="pb pb-ig">IG</span>' : '<span class="pb pb-off">IG</span>';
+    const ytB = v.posted_yt ? '<span class="pb pb-yt">YT</span>' : '<span class="pb pb-off">YT</span>';
+    const fbB = v.posted_fb ? '<span class="pb pb-fb">FB</span>' : '<span class="pb pb-off">FB</span>';
+    const tgB = v.posted_tg ? '<span class="pb pb-tg">TG</span>' : '<span class="pb pb-off">TG</span>';
+    const dot = v.error ? 'dot-err' : (v.posted_ig||v.posted_yt||v.posted_fb||v.posted_tg ? 'dot-ok' : 'dot-pend');
+    return `<tr>
+      <td><span class="status-dot ${dot}"></span></td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.title||'—'}</td>
+      <td>${src}</td>
+      <td style="color:var(--muted);white-space:nowrap">${date}</td>
+      <td><div class="platform-badges">${igB}${ytB}${fbB}${tgB}</div></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('total-count').textContent = total;
+  document.getElementById('ig-count').textContent = ig;
+  document.getElementById('yt-count').textContent = yt;
+  document.getElementById('fb-count').textContent = fb;
+}
+
+// ── Connect Modal ─────────────────────────────────────────────────────────
+function openConnectModal(platform) {
+  currentPlatform = platform;
+  needs2fa = false;
+  const cfg = {
+    instagram: {title:'Подключить Instagram', desc:'Войди в Instagram аккаунт', label:'Instagram username'},
+    youtube:   {title:'Подключить YouTube',   desc:'Войди через Google аккаунт',  label:'Google Email'},
+    facebook:  {title:'Подключить Facebook',  desc:'Войди в Facebook аккаунт',    label:'Email или телефон'},
+  };
+  const c = cfg[platform] || {title:platform, desc:'', label:'Логин'};
+  document.getElementById('modal-title').textContent = c.title;
+  document.getElementById('modal-desc').textContent  = c.desc;
+  document.getElementById('user-label').textContent  = c.label;
+  document.getElementById('modal-username').value = '';
+  document.getElementById('modal-password').value = '';
+  document.getElementById('modal-2fa').value = '';
+  document.getElementById('twofa-row').style.display = 'none';
+  document.getElementById('modal-submit').textContent = 'Подключить';
+  document.getElementById('connectModal').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('connectModal').classList.remove('show');
+  currentPlatform = null;
+}
+
+async function submitConnect() {
+  const btn = document.getElementById('modal-submit');
+  const username = document.getElementById('modal-username').value.trim();
+  const password = document.getElementById('modal-password').value.trim();
+  const code     = document.getElementById('modal-2fa').value.trim();
+
+  btn.innerHTML = '<span class="spinner"></span> Подключение...';
+  btn.disabled = true;
+
+  try {
+    let res, data;
+    if (needs2fa) {
+      res = await fetch(`/api/connect/${currentPlatform}/2fa`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({code})
+      });
+    } else {
+      res = await fetch(`/api/connect/${currentPlatform}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({username, password})
+      });
+    }
+    data = await res.json();
+
+    if (data.needs_2fa) {
+      needs2fa = true;
+      document.getElementById('twofa-row').style.display = 'block';
+      document.getElementById('modal-desc').textContent = '📱 Введи код из SMS или приложения аутентификатора';
+      btn.innerHTML = 'Подтвердить';
+      btn.disabled = false;
+      return;
+    }
+
+    if (data.ok) {
+      showToast(`${currentPlatform} подключён ✅`, 's');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showToast(data.error || 'Ошибка', 'e');
+      btn.innerHTML = 'Подключить';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    showToast('Сетевая ошибка', 'e');
+    btn.innerHTML = 'Подключить';
+    btn.disabled = false;
+  }
+}
+
+// ── Disconnect ─────────────────────────────────────────────────────────────
+async function disconnect(platform) {
+  await fetch(`/api/disconnect/${platform}`, {method:'POST'});
+  showToast(`${platform} отключён`, 'i');
+  setTimeout(() => location.reload(), 800);
+}
+
+// ── Подключение Telegram ───────────────────────────────────────────────────
+async function connectTelegram(btn) {
+  const token   = (document.getElementById('tg-token-input').value   || '').trim();
+  const channel = (document.getElementById('tg-channel-input').value || '').trim();
+  if (!token)   { showToast('Введите токен бота', 'e'); return; }
+  if (!channel) { showToast('Введите ID или @username канала', 'e'); return; }
+  btn.disabled = true;
+  btn.textContent = 'Проверяем...';
+  try {
+    const res = await fetch('/api/connect/telegram', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token, channel})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`Telegram подключён (@${data.bot}) ✅`, 's');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showToast(data.error || 'Ошибка подключения', 'e');
+      btn.disabled = false;
+      btn.textContent = 'Подключить Telegram';
+    }
+  } catch(e) {
+    showToast('Сетевая ошибка', 'e');
+    btn.disabled = false;
+    btn.textContent = 'Подключить Telegram';
+  }
+}
+
+// ── Встроенный браузер ─────────────────────────────────────────────────────
+function connectViaBrowser(platform, e) {
+  openBrowser(platform, e);
+  // Прокрутка к панели браузера
+  setTimeout(() => {
+    const panel = document.getElementById('browser-panel');
+    if (panel) panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }, 300);
+  showToast(`Войди в ${platform} в браузере ниже → нажми 💾 Сохранить сессию`, 'i');
+}
+
+function openBrowser(platform, e) {
+  currentBrowserPlatform = platform;
+  fetch(`/api/browser/open/${platform}`, {method:'POST'})
+    .then(() => {
+      document.getElementById('browser-panel').style.display = 'block';
+      document.getElementById('browser-addr').textContent = PLATFORM_URLS[platform] || platform;
+      document.getElementById('browser-platform-label').textContent = platform.toUpperCase();
+      document.getElementById('save-session-btn').style.display = platform !== 'tiktok' ? 'block' : 'none';
+      document.getElementById('close-browser-btn').style.display = 'block';
+      showToast(`Браузер открыт → войди в ${platform}`, 'i');
+    });
+  document.querySelectorAll('.plat-btn').forEach(b => b.classList.remove('active'));
+  if (e && e.target) e.target.classList.add('active');
+}
+
+async function saveSession() {
+  if (!currentBrowserPlatform || currentBrowserPlatform === 'tiktok') {
+    showToast('Выбери платформу', 'e'); return;
+  }
+  const btn = document.getElementById('save-session-btn');
+  btn.innerHTML = '<span class="spinner"></span> Сохранение...';
+  btn.disabled = true;
+
+  const res = await fetch(`/api/browser/save/${currentBrowserPlatform}`, {method:'POST'});
+  const data = await res.json();
+
+  if (data.ok) {
+    showToast(`Сессия ${currentBrowserPlatform} сохранена ✅`, 's');
+    setTimeout(() => location.reload(), 1500);
+  } else {
+    showToast('Не удалось сохранить сессию', 'e');
+    btn.innerHTML = '💾 Сохранить сессию';
+    btn.disabled = false;
+  }
+}
+
+function closeBrowser() {
+  fetch('/api/browser/stop', {method:'POST'});
+  document.getElementById('browser-panel').style.display = 'none';
+  document.getElementById('save-session-btn').style.display = 'none';
+  document.getElementById('close-browser-btn').style.display = 'none';
+  document.querySelectorAll('.plat-btn').forEach(b => b.classList.remove('active'));
+  currentBrowserPlatform = null;
+}
+
+// ── Настройки ──────────────────────────────────────────────────────────────
+async function saveSettings() {
+  const body = {
+    tiktok_username:  document.getElementById('s-tiktok').value.trim(),
+    telegram_token:   document.getElementById('s-tg-token').value.trim(),
+    telegram_channel: document.getElementById('s-tg-channel').value.trim(),
+    check_interval:   parseInt(document.getElementById('s-interval').value) || 30,
+    enable_instagram: document.getElementById('s-ig').checked,
+    enable_youtube:   document.getElementById('s-yt').checked,
+    enable_facebook:  document.getElementById('s-fb').checked,
+    enable_telegram:  document.getElementById('s-tg').checked,
+    enable_tg_to_ig:  document.getElementById('s-tg-to-ig').checked,
+    enable_tg_to_fb:  document.getElementById('s-tg-to-fb').checked,
+  };
+  await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  showToast('Настройки сохранены ✅', 's');
+  document.getElementById('settingsModal').classList.remove('show');
+}
+
+// ── Проверка сейчас ────────────────────────────────────────────────────────
+async function checkNow() {
+  const res = await fetch('/api/check-now', {method:'POST'});
+  const data = await res.json();
+  showToast(data.message || 'Проверка запущена', 'i');
+}
+
+// ── Сброс тестовых данных ─────────────────────────────────────────────────
+async function resetAll() {
+  if (!confirm('Удалить все сессии, медиафайлы и историю постов?\nЭто действие необратимо.')) return;
+  const res = await fetch('/api/reset', {method:'POST'});
+  const data = await res.json();
+  if (data.ok) {
+    const r = data.removed;
+    showToast(`Сброс выполнен: сессий ${r.sessions}, файлов ${r.media}, записей ${r.db_records}`, 's');
+    setTimeout(() => location.reload(), 2000);
+  } else {
+    showToast('Ошибка сброса', 'e');
+  }
+}
+
+// ── Toasts ─────────────────────────────────────────────────────────────────
+function showToast(msg, type='i') {
+  const wrap = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+loadHistory();
+setInterval(loadHistory, 30000);
+</script>
+</body>
+</html>
