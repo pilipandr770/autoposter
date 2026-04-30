@@ -124,7 +124,7 @@ async def post_video(video_path: str, caption: str) -> bool:
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]
         )
         ctx = await browser.new_context(
             storage_state=SESSION,
@@ -138,43 +138,57 @@ async def post_video(video_path: str, caption: str) -> bool:
         page = await ctx.new_page()
         try:
             # Пробуем через Reels Creator
-            await page.goto("https://www.facebook.com/reels/create/", wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(3000)
+            await page.goto("https://www.facebook.com/reels/create/", wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(4000)
 
             # Если редирект на логин — сессия протухла
             if "login" in page.url:
                 logger.error("Facebook: session expired")
                 return False
 
-            # Загрузить видео через file chooser
+            # Кликаем кнопку загрузки чтобы file input появился в DOM
+            for sel in [
+                'button:has-text("Select video")',
+                'button:has-text("Выбрать видео")',
+                'button:has-text("Select")',
+                '[role="button"]:has-text("Upload")',
+                '[aria-label*="Upload"]',
+                '[aria-label*="upload"]',
+            ]:
+                try:
+                    await page.click(sel, timeout=2000)
+                    await page.wait_for_timeout(1000)
+                    break
+                except Exception:
+                    pass
+
+            # Напрямую устанавливаем файл в input[type="file"] (обходит file chooser)
+            uploaded = False
             try:
-                async with page.expect_file_chooser(timeout=10000) as fc:
-                    # Кнопка загрузки в Reels Creator
-                    for sel in [
-                        'input[type="file"]',
-                        '[aria-label*="Upload"]',
-                        '[data-visualcompletion="ignore-dynamic"] input[type="file"]',
-                    ]:
-                        try:
-                            await page.click(sel, timeout=3000)
-                            break
-                        except Exception:
-                            pass
-                fc_val = await fc.value
-                await fc_val.set_files(video_path)
-            except Exception:
-                # Fallback: обычный пост на стену
+                await page.wait_for_selector('input[type="file"]', state="attached", timeout=8000)
+                await page.locator('input[type="file"]').first.set_input_files(video_path)
+                uploaded = True
+                logger.info("Facebook: video file set via Reels input")
+            except Exception as e:
+                logger.warning(f"Facebook Reels input failed: {e}")
+
+            if not uploaded:
                 return await _post_video_wall(page, video_path, caption)
 
-            await page.wait_for_timeout(8000)
+            await page.wait_for_timeout(10000)
 
             # Описание
-            for sel in ['div[contenteditable="true"]', 'textarea', '[placeholder*="description"]']:
+            for sel in [
+                'div[contenteditable="true"]',
+                'textarea',
+                '[placeholder*="description"]',
+                '[placeholder*="описание"]',
+            ]:
                 try:
                     el = page.locator(sel).first
-                    if await el.is_visible():
+                    if await el.is_visible(timeout=2000):
                         await el.click()
-                        await el.fill(caption[:2000])
+                        await page.keyboard.type(caption[:2000])
                         break
                 except Exception:
                     pass
@@ -182,7 +196,13 @@ async def post_video(video_path: str, caption: str) -> bool:
             await page.wait_for_timeout(2000)
 
             # Публикация
-            for sel in ['div[aria-label*="Publish"]', 'button:has-text("Publish")', 'button:has-text("Share")']:
+            for sel in [
+                'div[aria-label*="Publish"]',
+                'div[aria-label*="Опубликовать"]',
+                'button:has-text("Publish")',
+                'button:has-text("Опубликовать")',
+                'button:has-text("Share")',
+            ]:
                 try:
                     await page.click(sel, timeout=5000)
                     break
@@ -195,7 +215,10 @@ async def post_video(video_path: str, caption: str) -> bool:
 
         except Exception as e:
             logger.error(f"Facebook post error: {e}", exc_info=True)
-            return await _post_video_wall(page, video_path, caption)
+            try:
+                return await _post_video_wall(page, video_path, caption)
+            except Exception:
+                return False
         finally:
             await browser.close()
 
@@ -203,11 +226,18 @@ async def post_video(video_path: str, caption: str) -> bool:
 async def _post_video_wall(page, video_path: str, caption: str) -> bool:
     """Fallback: публикует видео обычным постом на стене."""
     try:
-        await page.goto("https://www.facebook.com/", wait_until="networkidle", timeout=30000)
-        await page.wait_for_timeout(2000)
+        await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(3000)
+
+        if "login" in page.url:
+            return False
 
         # Открыть диалог создания поста
-        for sel in ['[aria-label="Create a post"]', '[placeholder*="mind"]', '[role="button"]:has-text("Photo")']:
+        for sel in [
+            '[aria-label="Create a post"]',
+            '[placeholder*="mind"]',
+            '[placeholder*="ум"]',
+        ]:
             try:
                 await page.click(sel, timeout=4000)
                 await page.wait_for_timeout(2000)
@@ -215,23 +245,33 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
             except Exception:
                 pass
 
-        # Загрузить видео
-        async with page.expect_file_chooser(timeout=10000) as fc:
-            for sel in ['[aria-label*="Photo"]', '[aria-label*="Video"]', 'input[type="file"]']:
-                try:
-                    await page.click(sel, timeout=3000)
-                    break
-                except Exception:
-                    pass
-        fc_val = await fc.value
-        await fc_val.set_files(video_path)
-        await page.wait_for_timeout(8000)
+        # Нажать кнопку "Photo/Video" в попапе
+        for sel in [
+            'div[role="button"]:has-text("Photo")',
+            'div[role="button"]:has-text("Video")',
+            '[aria-label*="Photo"]',
+            '[aria-label*="Video"]',
+            'span:has-text("Photo")',
+            'span:has-text("Video")',
+        ]:
+            try:
+                await page.click(sel, timeout=3000)
+                await page.wait_for_timeout(2000)
+                break
+            except Exception:
+                pass
+
+        # Напрямую устанавливаем файл в input[type="file"]
+        await page.wait_for_selector('input[type="file"]', state="attached", timeout=8000)
+        await page.locator('input[type="file"]').first.set_input_files(video_path)
+        await page.wait_for_timeout(10000)
 
         # Подпись
         for sel in ['div[contenteditable="true"]', 'textarea']:
             try:
                 el = page.locator(sel).first
-                if await el.is_visible():
+                if await el.is_visible(timeout=2000):
+                    await el.click()
                     await el.fill(caption[:2000])
                     break
             except Exception:

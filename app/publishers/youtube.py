@@ -71,25 +71,59 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
         )
         page = await ctx.new_page()
         try:
-            await page.goto("https://studio.youtube.com", wait_until="networkidle")
-            await page.wait_for_timeout(2000)
+            await page.goto("https://studio.youtube.com", wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(3000)
 
-            # Кнопка CREATE
-            await page.click('ytcp-button#create-icon, [aria-label="CREATE"], [aria-label="Создать"]')
-            await page.wait_for_timeout(1000)
+            # Проверяем что залогинены
+            if "accounts.google.com" in page.url or "signin" in page.url:
+                logger.error("YouTube: session expired or not logged in")
+                return False
+
+            # Кнопка CREATE (разные варианты)
+            for sel in [
+                'ytcp-button#create-icon',
+                'button[aria-label="CREATE"]',
+                'button[aria-label="Создать"]',
+                '#create-icon',
+                'ytcp-icon-button.ytcp-create-icon-renderer',
+                '[test-id="create-icon"]',
+            ]:
+                try:
+                    await page.click(sel, timeout=3000)
+                    break
+                except Exception:
+                    pass
+            await page.wait_for_timeout(1500)
 
             # Upload videos
-            upload = page.locator('tp-yt-paper-item').filter(has_text="Upload video").first
-            if not await upload.is_visible():
-                upload = page.locator('tp-yt-paper-item').filter(has_text="Загрузить").first
-            await upload.click()
+            for txt in ["Upload video", "Загрузить видео", "Upload"]:
+                try:
+                    await page.click(f'tp-yt-paper-item:has-text("{txt}")', timeout=2000)
+                    break
+                except Exception:
+                    pass
             await page.wait_for_timeout(2000)
 
-            # Выбрать файл
-            async with page.expect_file_chooser() as fc:
-                await page.click('[class*="file-picker"] button, ytcp-uploads-file-picker #select-files-button')
-            fc_val = await fc.value
-            await fc_val.set_files(video_path)
+            # Выбрать файл — напрямую через input[type="file"]
+            try:
+                await page.wait_for_selector('input[type="file"]', state="attached", timeout=10000)
+                await page.locator('input[type="file"]').first.set_input_files(video_path)
+            except Exception:
+                # Fallback через file chooser
+                async with page.expect_file_chooser(timeout=10000) as fc_info:
+                    for sel in [
+                        'ytcp-uploads-file-picker #select-files-button',
+                        '[class*="file-picker"] button',
+                        'button:has-text("SELECT FILES")',
+                        'button:has-text("ВЫБРАТЬ ФАЙЛЫ")',
+                    ]:
+                        try:
+                            await page.click(sel, timeout=2000)
+                            break
+                        except Exception:
+                            pass
+                fc = await fc_info.value
+                await fc.set_files(video_path)
 
             # Ждём появления формы редактирования
             await page.wait_for_selector('#textbox', timeout=60000)

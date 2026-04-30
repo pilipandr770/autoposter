@@ -121,7 +121,6 @@ async def _download_video(profile_url: str, video_id: str, username: str) -> Opt
         "yt-dlp",
         "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "--merge-output-format", "mp4",
-        "--no-watermark",           # убирает watermark TikTok если поддерживается
         "--no-warnings",
         "-o", output_tmpl,
         video_url
