@@ -12,10 +12,23 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 _running = False
+_checking = False  # prevent concurrent check_and_post() calls
 
 
 async def check_and_post():
     """Главный цикл: проверяем TikTok → постим новые видео на все платформы."""
+    global _checking
+    if _checking:
+        logger.warning("Check already in progress, skipping duplicate call")
+        return
+    _checking = True
+    try:
+        await _do_check_and_post()
+    finally:
+        _checking = False
+
+
+async def _do_check_and_post():
     username = get_setting("tiktok_username") or settings.TIKTOK_USERNAME
     if not username:
         logger.warning("TikTok username not set, skipping check")

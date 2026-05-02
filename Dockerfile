@@ -14,12 +14,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     websockify \
     fonts-dejavu-core \
     ffmpeg \
+    xdotool \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Устанавливаем Playwright браузеры
 RUN playwright install chromium

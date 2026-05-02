@@ -146,7 +146,8 @@ async def post_video(video_path: str, caption: str) -> bool:
                 logger.error("Facebook: session expired")
                 return False
 
-            # Кликаем кнопку загрузки чтобы file input появился в DOM
+            # Click upload button then set file directly on the input element
+            uploaded = False
             for sel in [
                 'button:has-text("Select video")',
                 'button:has-text("Выбрать видео")',
@@ -162,15 +163,13 @@ async def post_video(video_path: str, caption: str) -> bool:
                 except Exception:
                     pass
 
-            # Напрямую устанавливаем файл в input[type="file"] (обходит file chooser)
-            uploaded = False
             try:
-                await page.wait_for_selector('input[type="file"]', state="attached", timeout=8000)
+                await page.wait_for_selector('input[type="file"]', state="attached", timeout=10000)
                 await page.locator('input[type="file"]').first.set_input_files(video_path)
                 uploaded = True
-                logger.info("Facebook: video file set via Reels input")
+                logger.info("Facebook: video file set via set_input_files ✅")
             except Exception as e:
-                logger.warning(f"Facebook Reels input failed: {e}")
+                logger.warning(f"Facebook set_input_files failed: {e}")
 
             if not uploaded:
                 return await _post_video_wall(page, video_path, caption)
@@ -261,7 +260,15 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
             except Exception:
                 pass
 
-        # Напрямую устанавливаем файл в input[type="file"]
+        for sel in ['div[role="button"]:has-text("Photo")', 'div[role="button"]:has-text("Video")',
+                    '[aria-label*="Photo"]', '[aria-label*="Video"]']:
+            try:
+                await page.click(sel, timeout=3000)
+                await page.wait_for_timeout(2000)
+                break
+            except Exception:
+                pass
+
         await page.wait_for_selector('input[type="file"]', state="attached", timeout=8000)
         await page.locator('input[type="file"]').first.set_input_files(video_path)
         await page.wait_for_timeout(10000)
