@@ -316,8 +316,27 @@ async def _post_reel_via_web(video_path: str, caption: str) -> bool:
             #   C) Drag-and-drop simulation → dispatch drop event with DataTransfer from input files
             #   D) xdotool → type path into native GTK dialog as last resort
             file_set = False
-            upload_triggered = False
             import subprocess as _sp
+
+            # Selectors scoped to the create dialog (not background feed)
+            DIALOG = '[role="dialog"]'
+            UPLOAD_READY_SELS = [
+                f'{DIALOG} div[role="button"]:has-text("Next")',
+                f'{DIALOG} button:has-text("Next")',
+                f'{DIALOG} div[role="button"]:has-text("Далее")',
+                f'{DIALOG} [aria-label="Loading"]',
+                f'{DIALOG} [role="progressbar"]',
+            ]
+
+            async def _upload_started(timeout: int = 800) -> bool:
+                for check_sel in UPLOAD_READY_SELS:
+                    try:
+                        if await page.locator(check_sel).first.is_visible(timeout=timeout):
+                            logger.info(f"Instagram web: upload UI detected ({check_sel})")
+                            return True
+                    except Exception:
+                        pass
+                return False
 
             button_sels = [
                 'button:has-text("Select from computer")',
@@ -473,21 +492,7 @@ async def _post_reel_via_web(video_path: str, caption: str) -> bool:
             xdotool_ok = _sp.run(['which', 'xdotool'], capture_output=True).returncode == 0
 
             # Check if upload already started (Next button visible or progress bar)
-            upload_started = False
-            for check_sel in [
-                '[role="dialog"] div[role="button"]:has-text("Next")',
-                '[role="dialog"] button:has-text("Next")',
-                '[role="dialog"] div[role="button"]:has-text("Далее")',
-                '[role="dialog"] [aria-label="Loading"]',
-                '[role="dialog"] [role="progressbar"]',
-            ]:
-                try:
-                    if await page.locator(check_sel).first.is_visible(timeout=800):
-                        upload_started = True
-                        logger.info(f"Instagram web: upload already started after A/B/C methods ✅")
-                        break
-                except Exception:
-                    pass
+            upload_started = await _upload_started()
 
             if not upload_started and xdotool_ok:
                 logger.info("Instagram web: A/B/C did not trigger upload — trying xdotool GTK dialog")
@@ -496,48 +501,69 @@ async def _post_reel_via_web(video_path: str, caption: str) -> bool:
                 btn_clicked = False
                 for sel in button_sels:
                     try:
-                        await page.click(sel, timeout=2000)
-                        btn_clicked = True
-                        break
+                        btn = page.locator(sel).first
+                        if await btn.is_visible(timeout=2000):
+                            await btn.scroll_into_view_if_needed()
+                            await btn.focus()
+                            btn_clicked = True
+                            logger.info(f"Instagram web: focused upload button for xdotool ({sel})")
+                            break
                     except Exception:
                         pass
                 if not btn_clicked:
-                    await page.evaluate('''() => {
+                    btn_clicked = bool(await page.evaluate('''() => {
                         const texts = ["select from computer","выбрать с компьютера","выбрать на компьютере"];
                         for (const el of document.querySelectorAll("button,[role='button']")) {
                             if (texts.some(t => el.textContent.toLowerCase().includes(t))) {
-                                el.click(); return;
+                                el.focus();
+                                return true;
                             }
                         }
+                        return false;
                     }''')
-                    btn_clicked = True
+                    )
 
                 if btn_clicked:
-                    await page.wait_for_timeout(2000)
+                    # Use a real X11 key event. Playwright clicks can emit a
+                    # filechooser event without opening the native GTK dialog.
+                    await page.bring_to_front()
+                    await page.wait_for_timeout(500)
+                    _sp.run(['xdotool', 'key', '--clearmodifiers', 'Return'],
+                            env=_xdot_env, capture_output=True)
+                    await page.wait_for_timeout(1500)
                     _focused = _sp.run(['xdotool', 'getwindowfocus', '--name'],
                                        env=_xdot_env, capture_output=True, text=True, timeout=3)
                     logger.info(f"Instagram web: xdotool focused window: '{_focused.stdout.strip()}'")
 
+                    abs_video_path = _os.path.abspath(video_path)
                     _sp.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+l'],
                             env=_xdot_env, capture_output=True)
                     await page.wait_for_timeout(400)
                     _sp.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+a'],
                             env=_xdot_env, capture_output=True)
-                    _sp.run(['xdotool', 'type', '--clearmodifiers', '--delay', '30',
-                             video_path], env=_xdot_env, capture_output=True)
+                    _sp.run(['xdotool', 'type', '--clearmodifiers', '--delay', '20',
+                             abs_video_path], env=_xdot_env, capture_output=True)
                     await page.wait_for_timeout(400)
                     _sp.run(['xdotool', 'key', '--clearmodifiers', 'Return'],
                             env=_xdot_env, capture_output=True)
-                    await page.wait_for_timeout(2000)
-                    logger.info("Instagram web: xdotool keystrokes sent")
+                    await page.wait_for_timeout(5000)
+                    logger.info("Instagram web: xdotool file dialog keystrokes sent")
+                    upload_started = await _upload_started(timeout=2000)
+                    file_set = file_set or upload_started
 
-            if not file_set:
+                if not upload_started:
+                    logger.warning("Instagram web: xdotool did not start upload")
+
+            if not upload_started:
+                upload_started = await _upload_started(timeout=2000)
+
+            if not upload_started:
                 await page.screenshot(path="/app/data/ig_debug_fail.png", full_page=False)
-                logger.error("Instagram web: could not set file — see ig_debug_fail.png")
+                logger.error("Instagram web: file was selected but upload did not start - see ig_debug_fail.png")
                 return False
 
             # Selectors scoped to the create dialog (not background feed)
-            DIALOG = '[role="dialog"]'
+            # DIALOG is defined above for upload detection.
 
             # Wait for Instagram to process the file and show the wizard (crop/edit step)
             # The dialog shows a progress bar while uploading; Next appears only after processing
@@ -557,10 +583,11 @@ async def _post_reel_via_web(video_path: str, caption: str) -> bool:
                     pass
 
             if not upload_done:
-                logger.warning("Instagram web: Next button never appeared after 90s, proceeding anyway")
-                # Dump diagnostics: console messages and network calls made during upload
+                await page.screenshot(path="/app/data/ig_debug_fail.png", full_page=False)
+                logger.error("Instagram web: Next button never appeared after 90s; upload did not complete")
                 logger.info(f"Instagram web: upload-phase console msgs ({len(_console_msgs)} total): {_console_msgs[-20:]}")
                 logger.info(f"Instagram web: upload-phase API calls ({len(_upload_reqs)} total): {_upload_reqs[:30]}")
+                return False
 
             await page.screenshot(path="/app/data/ig_debug_after_upload.png", full_page=False)
             logger.info("Instagram web: saved post-upload screenshot")
