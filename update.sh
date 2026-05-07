@@ -21,8 +21,7 @@ rsync -avz --progress \
 echo "Пересобираем и перезапускаем..."
 ssh "${VPS_USER}@${VPS_IP}" \
     "cd ${REMOTE_DIR} && \
-     docker compose -f docker-compose.yml -f docker-compose.prod.yml build && \
-     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans && \
+     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans && \
      docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
 
 echo "✅ Обновление завершено"

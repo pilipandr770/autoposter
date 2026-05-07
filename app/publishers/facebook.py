@@ -186,31 +186,45 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
 
             # Ждём обработки видео (прогресс загрузки)
             logger.info("Facebook: waiting for video to process...")
-            await page.wait_for_timeout(8000)
+            await page.wait_for_timeout(15000)
 
-            # Шаг 1: кнопка "Далее" / "Next" (может быть 1-2 раза)
-            for step in range(3):
+            # Шаг 1: кнопка "Далее" / "Next" — click until it disappears (up to 5 steps)
+            next_selectors = [
+                'div[aria-label="Next"]',
+                'div[aria-label="Далее"]',
+                'div[aria-label="Weiter"]',
+                '[role="button"][aria-label="Next"]',
+                '[role="button"][aria-label="Далее"]',
+                '[role="button"][aria-label="Weiter"]',
+                '[role="button"]:has-text("Next")',
+                '[role="button"]:has-text("Далее")',
+                '[role="button"]:has-text("Weiter")',
+                'button:has-text("Next")',
+                'button:has-text("Далее")',
+                'button:has-text("Weiter")',
+            ]
+            for step in range(5):
                 next_clicked = False
-                for sel in [
-                    'button:has-text("Next")',
-                    'button:has-text("Далее")',
-                    'div[aria-label="Next"]',
-                    'div[aria-label="Далее"]',
-                    '[role="button"]:has-text("Next")',
-                    '[role="button"]:has-text("Далее")',
-                ]:
+                for sel in next_selectors:
                     try:
                         btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=2000):
+                        if await btn.is_visible(timeout=5000):
                             await btn.click()
                             next_clicked = True
-                            logger.info(f"Facebook: clicked Next/Далее (step {step+1})")
-                            await page.wait_for_timeout(2000)
+                            logger.info(f"Facebook: clicked Next/Далее/Weiter (step {step+1})")
+                            await page.wait_for_timeout(3000)
                             break
                     except Exception:
                         pass
                 if not next_clicked:
                     break
+
+            # Screenshot after Next steps to diagnose where we are
+            try:
+                await page.screenshot(path="/app/data/fb_debug_after_next.png")
+                logger.info("Facebook: saved post-Next screenshot")
+            except Exception:
+                pass
 
             # Шаг 2: поле описания
             for sel in [
@@ -243,16 +257,30 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
             # Шаг 3: кнопка публикации
             publish_clicked = False
             for sel in [
-                'button:has-text("Поделиться")',
-                'button:has-text("Share")',
+                'div[aria-label="Share now"]',
                 'div[aria-label="Поделиться"]',
                 'div[aria-label="Share"]',
-                '[role="button"]:has-text("Поделиться")',
-                '[role="button"]:has-text("Share")',
-                'button:has-text("Publish")',
-                'button:has-text("Опубликовать")',
+                'div[aria-label="Teilen"]',
+                'div[aria-label="Veröffentlichen"]',
                 'div[aria-label*="Publish"]',
                 'div[aria-label*="Опубликовать"]',
+                '[role="button"][aria-label="Share now"]',
+                '[role="button"][aria-label="Share"]',
+                '[role="button"][aria-label="Поделиться"]',
+                '[role="button"][aria-label="Teilen"]',
+                '[role="button"][aria-label="Veröffentlichen"]',
+                '[role="button"]:has-text("Share now")',
+                '[role="button"]:has-text("Share")',
+                '[role="button"]:has-text("Поделиться")',
+                '[role="button"]:has-text("Teilen")',
+                '[role="button"]:has-text("Veröffentlichen")',
+                'button:has-text("Share now")',
+                'button:has-text("Share")',
+                'button:has-text("Поделиться")',
+                'button:has-text("Publish")',
+                'button:has-text("Опубликовать")',
+                'button:has-text("Teilen")',
+                'button:has-text("Veröffentlichen")',
             ]:
                 try:
                     btn = page.locator(sel).first

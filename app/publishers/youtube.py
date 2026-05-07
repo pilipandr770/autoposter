@@ -75,6 +75,12 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 await page.goto("https://studio.youtube.com", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(3000)
 
+            # Try dismissing any account verification / info dialogs that block UI
+            try:
+                await _dismiss_identity_dialog(page)
+            except Exception:
+                pass
+
             if "accounts.google.com" in page.url or "signin" in page.url:
                 logger.error("YouTube: session expired or not logged in")
                 return False
@@ -91,8 +97,21 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 except Exception:
                     pass
 
+            # If the upload dialog is already visible (navigated via /upload URL),
+            # skip the CREATE button dance entirely.
+            upload_dialog_present = False
+            try:
+                await page.wait_for_selector(
+                    'ytcp-uploads-file-picker, ytcp-uploads-dialog',
+                    timeout=5000
+                )
+                upload_dialog_present = True
+                logger.info("YouTube: upload dialog already present — skipping CREATE button")
+            except Exception:
+                pass
+
             # Click CREATE button — covers multiple locales
-            clicked_create = False
+            clicked_create = upload_dialog_present  # already open = no need to click
             create_selectors = [
                 '#create-icon',
                 'ytcp-button#create-icon',
@@ -108,7 +127,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             ]
             for sel in create_selectors:
                 try:
-                    await page.wait_for_selector(sel, timeout=8000)
+                    await page.wait_for_selector(sel, timeout=3000)
                     await page.click(sel)
                     clicked_create = True
                     logger.info(f"YouTube: clicked CREATE with selector: {sel}")
@@ -128,6 +147,12 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                         pass
 
             await page.wait_for_timeout(2500)
+
+            # Dismiss again after navigation, in case a dialog appeared
+            try:
+                await _dismiss_identity_dialog(page)
+            except Exception:
+                pass
 
             # Click "Upload video" — Ukrainian, Russian, English
             upload_clicked = False
@@ -175,56 +200,60 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             # Screenshot to see if upload dialog opened
             await page.screenshot(path="/app/data/yt_debug_dialog.png", full_page=False)
 
-            # Set file — try input[type="file"] first (works in YouTube Studio)
+            # Set file — YouTube Studio embeds input[type="file"] inside shadow DOM of
+            # ytcp-uploads-file-picker, so regular wait_for_selector never finds it.
             file_set = False
+
+            # Method 1: JS shadow-DOM traversal (most reliable for YouTube Studio)
             try:
-                # YouTube Studio upload dialog has a file input; wait longer (60s)
-                await page.wait_for_selector('input[type="file"]', state="attached", timeout=60000)
-                inputs = page.locator('input[type="file"]')
-                count = await inputs.count()
-                logger.info(f"YouTube: found {count} file input(s)")
-                await inputs.first.set_input_files(video_path)
-                file_set = True
-                logger.info("YouTube: file set via set_input_files ✅")
+                for _ in range(30):  # poll up to 15s
+                    handle = await page.evaluate_handle("""
+                        () => {
+                            function find(root) {
+                                const i = root.querySelector('input[type="file"]');
+                                if (i) return i;
+                                for (const el of root.querySelectorAll('*'))
+                                    if (el.shadowRoot) { const f = find(el.shadowRoot); if (f) return f; }
+                                return null;
+                            }
+                            return find(document);
+                        }
+                    """)
+                    el = handle.as_element()
+                    if el:
+                        await el.set_input_files(video_path)
+                        file_set = True
+                        logger.info("YouTube: file set via shadow DOM traversal ✅")
+                        break
+                    await page.wait_for_timeout(500)
             except Exception as e:
-                logger.warning(f"YouTube: direct file input failed: {e}")
+                logger.warning(f"YouTube: shadow DOM traversal failed: {e}")
 
             if not file_set:
-                # Fallback: click SELECT FILES button and use file chooser
-                try:
-                    # Try file chooser with longer timeout
-                    async with page.expect_file_chooser(timeout=60000) as fc_info:
-                        for sel in [
-                            '#select-files-button',
-                            'ytcp-uploads-file-picker button',
-                            '[class*="select-files"]',
-                            'button:has-text("SELECT FILES")',
-                            'button:has-text("ВЫБРАТЬ ФАЙЛЫ")',
-                            'button:has-text("Select files")',
-                        ]:
-                            try:
-                                await page.click(sel, timeout=5000)
-                                break
-                            except Exception:
-                                pass
-                    fc = await fc_info.value
-                    await fc.set_files(video_path)
-                    file_set = True
-                    logger.info("YouTube: file set via file chooser ✅")
-                except Exception as e:
-                    logger.error(f"YouTube: file chooser also failed: {e}")
-                    # Final fallback: try direct upload page and then try again once
+                # Method 2: click "Выбрать файлы" / "Select files" and handle file chooser
+                for btn_sel in [
+                    'button:has-text("Выбрать файлы")',
+                    'button:has-text("Вибрати файли")',
+                    'button:has-text("Select files")',
+                    'button:has-text("SELECT FILES")',
+                    '#select-files-button',
+                    'ytcp-uploads-file-picker button',
+                    '[class*="select-files"]',
+                ]:
                     try:
-                        await page.goto('https://studio.youtube.com/upload', wait_until='domcontentloaded', timeout=60000)
-                        await page.wait_for_timeout(3000)
-                        await page.wait_for_selector('input[type="file"]', state='attached', timeout=30000)
-                        inputs = page.locator('input[type="file"]')
-                        await inputs.first.set_input_files(video_path)
+                        async with page.expect_file_chooser(timeout=8000) as fc_info:
+                            await page.click(btn_sel, timeout=4000)
+                        fc = await fc_info.value
+                        await fc.set_files(video_path)
                         file_set = True
-                        logger.info('YouTube: file set via direct /upload fallback ✅')
-                    except Exception as e2:
-                        logger.error(f'YouTube: final fallback failed: {e2}')
-                        return False
+                        logger.info(f"YouTube: file set via file chooser ({btn_sel}) ✅")
+                        break
+                    except Exception:
+                        pass
+
+            if not file_set:
+                logger.error("YouTube: all file-set methods failed — aborting")
+                return False
 
             # Wait for editing form to appear
             await page.wait_for_selector('#textbox', timeout=90000)
