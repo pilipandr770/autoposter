@@ -68,11 +68,8 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
         )
         page = await ctx.new_page()
         try:
-            # Try going to Studio; if upload page is available, navigate there directly
-            try:
-                await page.goto("https://studio.youtube.com/upload", wait_until="domcontentloaded", timeout=60000)
-            except Exception:
-                await page.goto("https://studio.youtube.com", wait_until="domcontentloaded", timeout=60000)
+            # studio.youtube.com/upload is not a valid standalone URL — navigate to main Studio
+            await page.goto("https://studio.youtube.com", wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
 
             # Try dismissing any account verification / info dialogs that block UI

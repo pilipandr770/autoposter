@@ -156,6 +156,26 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
                 logger.error("Facebook: session expired")
                 return False
 
+            # Verify the Reels Creator UI actually loaded (not an error page)
+            reels_ready = False
+            for chk in [
+                'input[type="file"][accept*="video"]',
+                'div[aria-label*="video" i]',
+                'div[aria-label*="reel" i]',
+                '[data-testid*="reel" i]',
+            ]:
+                try:
+                    await page.wait_for_selector(chk, timeout=3000)
+                    reels_ready = True
+                    break
+                except Exception:
+                    pass
+
+            if not reels_ready:
+                # Page shows error — try plain wall-post fallback
+                logger.warning("Facebook: reels/create/ did not show upload UI — falling back to wall post")
+                return await _post_video_wall(page, video_path, caption)
+
             # Click upload button then set file directly on the input element
             uploaded = False
             for sel in [
