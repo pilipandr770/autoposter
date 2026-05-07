@@ -68,27 +68,30 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
         )
         page = await ctx.new_page()
         try:
-            await page.goto("https://studio.youtube.com", wait_until="domcontentloaded", timeout=40000)
-            await page.wait_for_timeout(4000)
+            # Try going to Studio; if upload page is available, navigate there directly
+            try:
+                await page.goto("https://studio.youtube.com/upload", wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                await page.goto("https://studio.youtube.com", wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_timeout(3000)
 
             if "accounts.google.com" in page.url or "signin" in page.url:
                 logger.error("YouTube: session expired or not logged in")
                 return False
 
-            # Dismiss "Confirm your identity" / "Підтвердьте свою особу" dialog
-            # (appears when logging in from new IP)
-            for dismiss_text in ["Далі", "Next", "Далее", "Continue", "Got it"]:
+            # Dismiss possible identity / info dialogs
+            for dismiss_text in ["Далі", "Next", "Далее", "Continue", "Got it", "Понятно"]:
                 try:
                     btn = page.get_by_role("button", name=dismiss_text)
                     if await btn.is_visible(timeout=3000):
                         await btn.click()
                         logger.info(f"YouTube: dismissed identity dialog with '{dismiss_text}'")
-                        await page.wait_for_timeout(2000)
+                        await page.wait_for_timeout(1500)
                         break
                 except Exception:
                     pass
 
-            # Click CREATE button — covers Ukrainian ("Створити"), Russian ("Создать"), English ("Create")
+            # Click CREATE button — covers multiple locales
             clicked_create = False
             create_selectors = [
                 '#create-icon',
@@ -105,7 +108,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             ]
             for sel in create_selectors:
                 try:
-                    await page.wait_for_selector(sel, timeout=4000)
+                    await page.wait_for_selector(sel, timeout=8000)
                     await page.click(sel)
                     clicked_create = True
                     logger.info(f"YouTube: clicked CREATE with selector: {sel}")
@@ -115,24 +118,24 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
 
             if not clicked_create:
                 logger.warning("YouTube: CREATE button not found — trying text search")
-                for txt in ["Створити", "Create", "Создать", "Upload"]:
+                for txt in ["Створити", "Create", "Создать", "Upload", "Додати відео", "Добавить видео"]:
                     try:
-                        await page.get_by_role("button", name=txt).first.click(timeout=3000)
+                        await page.get_by_text(txt, exact=True).first.click(timeout=5000)
                         clicked_create = True
-                        logger.info(f"YouTube: clicked CREATE via get_by_role: '{txt}'")
+                        logger.info(f"YouTube: clicked CREATE via text: '{txt}'")
                         break
                     except Exception:
                         pass
 
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(2500)
 
             # Click "Upload video" — Ukrainian, Russian, English
             upload_clicked = False
             upload_texts = [
                 "Додати відео",     # Ukrainian YouTube Studio
-                "Добавить видео",   # Russian YouTube Studio
-                "Upload video",     # English
-                "Загрузить видео",  # alternate Russian
+                "Добавить видео",
+                "Upload video",
+                "Загрузить видео",
                 "Upload",
             ]
             for text in upload_texts:
@@ -143,7 +146,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                     f'a:has-text("{text}")',
                 ]:
                     try:
-                        await page.click(sel, timeout=2000)
+                        await page.click(sel, timeout=4000)
                         upload_clicked = True
                         logger.info(f"YouTube: clicked '{text}' with: {sel}")
                         break
@@ -155,7 +158,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             if not upload_clicked:
                 for text in upload_texts:
                     try:
-                        await page.get_by_text(text, exact=True).first.click(timeout=2000)
+                        await page.get_by_text(text, exact=True).first.click(timeout=4000)
                         upload_clicked = True
                         logger.info(f"YouTube: clicked via get_by_text: '{text}'")
                         break
@@ -175,8 +178,8 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             # Set file — try input[type="file"] first (works in YouTube Studio)
             file_set = False
             try:
-                # YouTube Studio upload dialog has a file input; wait up to 40s
-                await page.wait_for_selector('input[type="file"]', state="attached", timeout=40000)
+                # YouTube Studio upload dialog has a file input; wait longer (60s)
+                await page.wait_for_selector('input[type="file"]', state="attached", timeout=60000)
                 inputs = page.locator('input[type="file"]')
                 count = await inputs.count()
                 logger.info(f"YouTube: found {count} file input(s)")
@@ -189,7 +192,8 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             if not file_set:
                 # Fallback: click SELECT FILES button and use file chooser
                 try:
-                    async with page.expect_file_chooser(timeout=20000) as fc_info:
+                    # Try file chooser with longer timeout
+                    async with page.expect_file_chooser(timeout=60000) as fc_info:
                         for sel in [
                             '#select-files-button',
                             'ytcp-uploads-file-picker button',
@@ -199,7 +203,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                             'button:has-text("Select files")',
                         ]:
                             try:
-                                await page.click(sel, timeout=3000)
+                                await page.click(sel, timeout=5000)
                                 break
                             except Exception:
                                 pass
@@ -209,7 +213,18 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                     logger.info("YouTube: file set via file chooser ✅")
                 except Exception as e:
                     logger.error(f"YouTube: file chooser also failed: {e}")
-                    return False
+                    # Final fallback: try direct upload page and then try again once
+                    try:
+                        await page.goto('https://studio.youtube.com/upload', wait_until='domcontentloaded', timeout=60000)
+                        await page.wait_for_timeout(3000)
+                        await page.wait_for_selector('input[type="file"]', state='attached', timeout=30000)
+                        inputs = page.locator('input[type="file"]')
+                        await inputs.first.set_input_files(video_path)
+                        file_set = True
+                        logger.info('YouTube: file set via direct /upload fallback ✅')
+                    except Exception as e2:
+                        logger.error(f'YouTube: final fallback failed: {e2}')
+                        return False
 
             # Wait for editing form to appear
             await page.wait_for_selector('#textbox', timeout=90000)
