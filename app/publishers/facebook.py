@@ -204,34 +204,74 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
             if not uploaded:
                 return await _post_video_wall(page, video_path, caption)
 
-            # Ждём обработки видео (прогресс загрузки)
-            logger.info("Facebook: waiting for video to process...")
-            await page.wait_for_timeout(15000)
-
-            # Шаг 1: кнопка "Далее" / "Next" — click until it disappears (up to 5 steps)
             next_selectors = [
                 'div[aria-label="Next"]',
+                'div[aria-label="Далі"]',
                 'div[aria-label="Далее"]',
                 'div[aria-label="Weiter"]',
                 '[role="button"][aria-label="Next"]',
+                '[role="button"][aria-label="Далі"]',
                 '[role="button"][aria-label="Далее"]',
                 '[role="button"][aria-label="Weiter"]',
                 '[role="button"]:has-text("Next")',
+                '[role="button"]:has-text("Далі")',
                 '[role="button"]:has-text("Далее")',
                 '[role="button"]:has-text("Weiter")',
                 'button:has-text("Next")',
+                'button:has-text("Далі")',
                 'button:has-text("Далее")',
                 'button:has-text("Weiter")',
             ]
+
+            # Check for upload error after a short wait
+            await page.wait_for_timeout(8000)
+            upload_failed = False
+            for err_sel in [
+                ':has-text("Неможливо завантажити")',
+                ':has-text("Cannot upload")',
+                ':has-text("Upload failed")',
+                ':has-text("Error uploading")',
+            ]:
+                try:
+                    if await page.locator(err_sel).first.is_visible():
+                        upload_failed = True
+                        logger.warning(f"Facebook: upload error detected ({err_sel}) — falling back to wall post")
+                        break
+                except Exception:
+                    pass
+
+            if upload_failed:
+                return await _post_video_wall(page, video_path, caption)
+
+            # Poll up to 3 minutes for Next/Далі button to appear (upload can be slow)
+            logger.info("Facebook: waiting for video to upload and Next button to appear...")
+            next_appeared = False
+            for _ in range(34):  # 34 * 5s ≈ 3 min (minus the 8s already waited)
+                for sel in next_selectors:
+                    try:
+                        if await page.locator(sel).first.is_visible():
+                            next_appeared = True
+                            break
+                    except Exception:
+                        pass
+                if next_appeared:
+                    break
+                await page.wait_for_timeout(5000)
+
+            if not next_appeared:
+                logger.warning("Facebook: Next button never appeared after 3min — falling back to wall post")
+                return await _post_video_wall(page, video_path, caption)
+
+            # Шаг 1: кнопка "Далі" / "Next" — click until it disappears (up to 5 steps)
             for step in range(5):
                 next_clicked = False
                 for sel in next_selectors:
                     try:
                         btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=5000):
+                        if await btn.is_visible():
                             await btn.click()
                             next_clicked = True
-                            logger.info(f"Facebook: clicked Next/Далее/Weiter (step {step+1})")
+                            logger.info(f"Facebook: clicked Next/Далі (step {step+1})")
                             await page.wait_for_timeout(3000)
                             break
                     except Exception:

@@ -82,14 +82,26 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 logger.error("YouTube: session expired or not logged in")
                 return False
 
-            # Dismiss possible identity / info dialogs
-            for dismiss_text in ["Далі", "Next", "Далее", "Continue", "Got it", "Понятно"]:
+            # Dismiss identity/info dialogs — use CSS selectors with .first to avoid strict-mode errors
+            for dismiss_sel in [
+                'button:has-text("Далі")',
+                'button:has-text("Next")',
+                'button:has-text("Continue")',
+                'button:has-text("Далее")',
+                'button:has-text("Got it")',
+                'button:has-text("Понятно")',
+                '[role="button"]:has-text("Далі")',
+                '[role="button"]:has-text("Next")',
+                '[role="button"]:has-text("Continue")',
+                'tp-yt-paper-button:has-text("Далі")',
+                'tp-yt-paper-button:has-text("Next")',
+            ]:
                 try:
-                    btn = page.get_by_role("button", name=dismiss_text)
-                    if await btn.is_visible(timeout=3000):
-                        await btn.click()
-                        logger.info(f"YouTube: dismissed identity dialog with '{dismiss_text}'")
-                        await page.wait_for_timeout(1500)
+                    el = page.locator(dismiss_sel).first
+                    if await el.is_visible(timeout=2000):
+                        await el.click()
+                        logger.info(f"YouTube: dismissed dialog with: {dismiss_sel}")
+                        await page.wait_for_timeout(2000)
                         break
                 except Exception:
                     pass
@@ -122,9 +134,10 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 'ytcp-create-icon-renderer',
                 '[test-id="create-icon"]',
             ]
-            for sel in create_selectors:
+            for i, sel in enumerate(create_selectors):
                 try:
-                    await page.wait_for_selector(sel, timeout=3000)
+                    t = 10000 if i == 0 else 3000  # give more time for first selector
+                    await page.wait_for_selector(sel, timeout=t)
                     await page.click(sel)
                     clicked_create = True
                     logger.info(f"YouTube: clicked CREATE with selector: {sel}")
