@@ -15,6 +15,20 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     fonts-dejavu-core \
     ffmpeg \
     xdotool \
+    wget \
+    gnupg2 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Google Chrome (includes H.264 codec support, unlike Playwright's Chromium)
+RUN wget -qO- https://dl-ssl.google.com/linux/linux_signing_key.pub | \
+        gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] \
+        http://dl.google.com/linux/chrome/deb/ stable main" \
+        > /etc/apt/sources.list.d/google-chrome.list && \
+    DEBIAN_FRONTEND=noninteractive apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -1,0 +1,37 @@
+# Продакшен-оверрайд: Traefik reverse proxy + закрытые порты
+# Использование: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+version: "3.9"
+
+networks:
+  traefik:
+    external: true  # Traefik-сеть, уже существующая на Hostinger VPS
+
+services:
+  autoposter:
+    # Порты не пробрасываем напрямую — только через Traefik
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+
+      # ── Web UI → HTTPS ────────────────────────────────────────────────
+      - "traefik.http.routers.autoposter.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.autoposter.entrypoints=websecure"
+      - "traefik.http.routers.autoposter.tls.certresolver=letsencrypt"
+      - "traefik.http.services.autoposter.loadbalancer.server.port=5000"
+
+      # Редирект HTTP → HTTPS
+      - "traefik.http.routers.autoposter-http.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.autoposter-http.entrypoints=web"
+      - "traefik.http.routers.autoposter-http.middlewares=redirect-https"
+      - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-https.redirectscheme.permanent=true"
+
+      # ── noVNC — НЕ публикуется через Traefik ─────────────────────────
+      # Доступ только через SSH-туннель:
+      # ssh -L 6080:localhost:6080 root@187.124.6.120
+      # затем открыть http://localhost:6080
+
+    # Порты закрыты на уровне базового compose-файла — пробрасывать не нужно

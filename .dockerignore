@@ -1,0 +1,31 @@
+# Данные и секреты — не включать в образ
+data/
+.env
+
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Деплой-скрипты (не нужны внутри контейнера)
+deploy.sh
+update.sh
+docker-compose.prod.yml
+
+# Тесты и утилиты
+test_*.py
+reset_db.py
+run_ig_test.sh
+*.md

@@ -37,8 +37,20 @@ async def _download_tg_video(bot: Bot, file_id: str, dest_dir: str) -> str | Non
         return None
 
 
-async def _handle_channel_post(message: Message, bot: Bot):
+async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: str):
     """Обрабатывает новый пост из Telegram канала."""
+    # Фильтруем по channel ID — обрабатываем только наш канал
+    if allowed_channel_id:
+        chat_id = str(message.chat.id)
+        # channel_id может быть @username или -100xxxxxxxxxx
+        if allowed_channel_id.startswith("@"):
+            chat_username = f"@{message.chat.username}" if message.chat.username else ""
+            if chat_username.lower() != allowed_channel_id.lower():
+                return
+        else:
+            if chat_id != allowed_channel_id:
+                return
+
     # Принимаем только видео
     video = message.video or (
         message.document
@@ -54,7 +66,7 @@ async def _handle_channel_post(message: Message, bot: Bot):
     if is_posted(tg_post_id):
         return
 
-    ig_enabled = get_setting("enable_tg_to_ig", "1") == "1"
+    ig_enabled = get_setting("enable_tg_to_ig", "0") == "1"
     fb_enabled = get_setting("enable_tg_to_fb", "1") == "1"
 
     if not ig_enabled and not fb_enabled:
@@ -112,13 +124,19 @@ async def start_telegram_monitor():
         logger.info("Telegram monitor: no bot token configured, skipping")
         return
 
+    channel_id = (get_setting("telegram_channel") or settings.TELEGRAM_CHANNEL_ID).strip()
+    if not channel_id:
+        logger.warning("Telegram monitor: TELEGRAM_CHANNEL_ID not set — bot will listen to ALL channels!")
+    else:
+        logger.info(f"Telegram monitor: filtering posts from channel {channel_id}")
+
     bot = Bot(token=token)
     dp = Dispatcher()
 
     @dp.channel_post()
     async def on_channel_post(message: Message):
         try:
-            await _handle_channel_post(message, bot)
+            await _handle_channel_post(message, bot, channel_id)
         except Exception as e:
             logger.error(f"Telegram monitor handler error: {e}", exc_info=True)
 

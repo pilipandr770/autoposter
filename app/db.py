@@ -62,6 +62,14 @@ def is_posted(tiktok_id: str) -> bool:
     return row is not None
 
 
+def get_video(tiktok_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM videos WHERE tiktok_id = ?", (tiktok_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def save_video(tiktok_id: str, title: str, file_path: str):
     with get_conn() as conn:
         conn.execute(

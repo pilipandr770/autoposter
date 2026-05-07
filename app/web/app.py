@@ -7,7 +7,7 @@ from config import settings, SESSION_FILES
 from app.db import (
     get_recent, get_setting, set_setting,
 )
-from app.publishers.instagram import login_instagram, login_instagram_2fa
+from app.publishers.instagram import login_instagram, login_instagram_2fa, is_native_session as instagram_is_native_session
 from app.publishers.youtube import login_youtube
 from app.publishers.facebook import login_facebook, login_facebook_2fa
 from app.browser_manager import BrowserManager
@@ -36,7 +36,7 @@ def create_flask_app():
 
     def platform_status():
         return {
-            "instagram": os.path.exists(SESSION_FILES["instagram"]),
+            "instagram": instagram_is_native_session(),
             "youtube":   os.path.exists(SESSION_FILES["youtube"]),
             "facebook":  os.path.exists(SESSION_FILES["facebook"]),
             "telegram":  bool(get_setting("telegram_token") or settings.TELEGRAM_BOT_TOKEN),
@@ -52,11 +52,11 @@ def create_flask_app():
             "interval":         get_setting("check_interval") or str(settings.CHECK_INTERVAL_MINUTES),
             "tg_token":         get_setting("telegram_token") or settings.TELEGRAM_BOT_TOKEN,
             "tg_channel":       get_setting("telegram_channel") or settings.TELEGRAM_CHANNEL_ID,
-            "enable_instagram": get_setting("enable_instagram", "1") == "1",
+            "enable_instagram": get_setting("enable_instagram", "0") == "1",
             "enable_youtube":   get_setting("enable_youtube", "1") == "1",
             "enable_facebook":  get_setting("enable_facebook", "1") == "1",
-            "enable_telegram":  get_setting("enable_telegram", "1") == "1",
-            "enable_tg_to_ig":  get_setting("enable_tg_to_ig", "1") == "1",
+            "enable_telegram":  get_setting("enable_telegram", "0") == "1",
+            "enable_tg_to_ig":  get_setting("enable_tg_to_ig", "0") == "1",
             "enable_tg_to_fb":  get_setting("enable_tg_to_fb", "1") == "1",
         }
         vnc_ready = browser_mgr.is_ready()

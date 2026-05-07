@@ -164,11 +164,13 @@ input:checked+.slider:before{transform:translateX(18px)}
       <div class="section-title">🔄 Потоки автопостинга</div>
       <div class="flow-card">
         <div class="flow-title">📹 TikTok → соцсети</div>
-        <div class="flow-row">TikTok <span class="flow-arrow">→</span> Instagram · YouTube · Facebook · Telegram</div>
+        <div class="flow-row">TikTok <span class="flow-arrow">→</span> YouTube · Facebook</div>
+        <div class="flow-row" style="margin-top:4px;font-size:11px">Facebook <span class="flow-arrow">→</span> Instagram <span style="color:var(--muted)">(через Meta)</span></div>
       </div>
       <div class="flow-card" style="margin-top:8px">
         <div class="flow-title">✈️ Telegram → соцсети</div>
-        <div class="flow-row">Telegram канал <span class="flow-arrow">→</span> Instagram · Facebook</div>
+        <div class="flow-row">Telegram канал <span class="flow-arrow">→</span> Facebook</div>
+        <div class="flow-row" style="margin-top:4px;font-size:11px">Facebook <span class="flow-arrow">→</span> Instagram <span style="color:var(--muted)">(через Meta)</span></div>
       </div>
     </div>
 
@@ -186,7 +188,7 @@ input:checked+.slider:before{transform:translateX(18px)}
           </span>
         </div>
         {% if not status.instagram %}
-        <button class="btn-sm btn-primary" onclick="connectViaBrowser('instagram', event)">🔗 Подключить Instagram</button>
+        <button class="btn-sm btn-primary" onclick="openConnectModal('instagram')">🔗 Подключить Instagram</button>
         {% else %}
         <button class="btn-sm btn-danger" onclick="disconnect('instagram')">Отключить</button>
         {% endif %}
@@ -371,15 +373,15 @@ input:checked+.slider:before{transform:translateX(18px)}
 
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px">
       <div class="section-title">TikTok → платформы</div>
-      <div class="toggle-row"><span>📸 Instagram</span><label class="toggle"><input type="checkbox" id="s-ig" {% if cfg.enable_instagram %}checked{% endif %}><span class="slider"></span></label></div>
+      <div class="toggle-row"><span>📸 Instagram <span style="font-size:10px;color:var(--muted)">(через Meta)</span></span><label class="toggle"><input type="checkbox" id="s-ig" {% if cfg.enable_instagram %}checked{% endif %}><span class="slider"></span></label></div>
       <div class="toggle-row"><span>▶️ YouTube</span><label class="toggle"><input type="checkbox" id="s-yt" {% if cfg.enable_youtube %}checked{% endif %}><span class="slider"></span></label></div>
       <div class="toggle-row"><span>📘 Facebook</span><label class="toggle"><input type="checkbox" id="s-fb" {% if cfg.enable_facebook %}checked{% endif %}><span class="slider"></span></label></div>
-      <div class="toggle-row"><span>✈️ Telegram</span><label class="toggle"><input type="checkbox" id="s-tg" {% if cfg.enable_telegram %}checked{% endif %}><span class="slider"></span></label></div>
+      <div class="toggle-row"><span>✈️ Telegram (отправка)</span><label class="toggle"><input type="checkbox" id="s-tg" {% if cfg.enable_telegram %}checked{% endif %}><span class="slider"></span></label></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px">
-      <div class="section-title">Telegram → Instagram</div>
+      <div class="section-title">Telegram канал → Facebook</div>
       <div class="toggle-row">
-        <span>✈️ Telegram → 📸 Instagram</span>
+        <span>✈️ Telegram → 📸 Instagram <span style="font-size:10px;color:var(--muted)">(через Meta)</span></span>
         <label class="toggle"><input type="checkbox" id="s-tg-to-ig" {% if cfg.enable_tg_to_ig %}checked{% endif %}><span class="slider"></span></label>
       </div>
       <div class="toggle-row">

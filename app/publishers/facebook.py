@@ -3,6 +3,7 @@ Facebook publisher.
 Использует Playwright с сохранённой сессией для публикации видео/Reels.
 Пользователь логинится через встроенный браузер (noVNC) и сохраняет сессию.
 """
+import asyncio
 import os
 import logging
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
@@ -10,6 +11,9 @@ from config import SESSION_FILES
 
 logger = logging.getLogger(__name__)
 SESSION = SESSION_FILES["facebook"]
+
+# Глобальный lock — только одна публикация в Facebook одновременно
+_fb_lock = asyncio.Lock()
 
 
 async def login_facebook(username: str, password: str) -> dict:
@@ -117,6 +121,12 @@ async def login_facebook_2fa(username: str, password: str, code: str) -> dict:
 
 async def post_video(video_path: str, caption: str) -> bool:
     """Публикует видео/Reel на Facebook используя сохранённую сессию."""
+    async with _fb_lock:
+        return await _post_video_impl(video_path, caption)
+
+
+async def _post_video_impl(video_path: str, caption: str) -> bool:
+    """Внутренняя реализация публикации (вызывается под lock)."""
     if not os.path.exists(SESSION):
         logger.error("Facebook: session not found")
         return False
@@ -174,43 +184,141 @@ async def post_video(video_path: str, caption: str) -> bool:
             if not uploaded:
                 return await _post_video_wall(page, video_path, caption)
 
-            await page.wait_for_timeout(10000)
+            # Ждём обработки видео (прогресс загрузки)
+            logger.info("Facebook: waiting for video to process...")
+            await page.wait_for_timeout(8000)
 
-            # Описание
+            # Шаг 1: кнопка "Далее" / "Next" (может быть 1-2 раза)
+            for step in range(3):
+                next_clicked = False
+                for sel in [
+                    'button:has-text("Next")',
+                    'button:has-text("Далее")',
+                    'div[aria-label="Next"]',
+                    'div[aria-label="Далее"]',
+                    '[role="button"]:has-text("Next")',
+                    '[role="button"]:has-text("Далее")',
+                ]:
+                    try:
+                        btn = page.locator(sel).first
+                        if await btn.is_visible(timeout=2000):
+                            await btn.click()
+                            next_clicked = True
+                            logger.info(f"Facebook: clicked Next/Далее (step {step+1})")
+                            await page.wait_for_timeout(2000)
+                            break
+                    except Exception:
+                        pass
+                if not next_clicked:
+                    break
+
+            # Шаг 2: поле описания
             for sel in [
                 'div[contenteditable="true"]',
                 'textarea',
                 '[placeholder*="description"]',
                 '[placeholder*="описание"]',
+                '[placeholder*="Caption"]',
+                '[placeholder*="Подпись"]',
             ]:
                 try:
                     el = page.locator(sel).first
                     if await el.is_visible(timeout=2000):
                         await el.click()
                         await page.keyboard.type(caption[:2000])
+                        logger.info("Facebook: caption filled")
                         break
                 except Exception:
                     pass
 
             await page.wait_for_timeout(2000)
 
-            # Публикация
+            # Делаем скриншот перед публикацией для диагностики
+            try:
+                await page.screenshot(path="/app/data/fb_before_publish.png")
+                logger.info("Facebook: saved pre-publish screenshot")
+            except Exception:
+                pass
+
+            # Шаг 3: кнопка публикации
+            publish_clicked = False
             for sel in [
-                'div[aria-label*="Publish"]',
-                'div[aria-label*="Опубликовать"]',
+                'button:has-text("Поделиться")',
+                'button:has-text("Share")',
+                'div[aria-label="Поделиться"]',
+                'div[aria-label="Share"]',
+                '[role="button"]:has-text("Поделиться")',
+                '[role="button"]:has-text("Share")',
                 'button:has-text("Publish")',
                 'button:has-text("Опубликовать")',
-                'button:has-text("Share")',
+                'div[aria-label*="Publish"]',
+                'div[aria-label*="Опубликовать"]',
             ]:
                 try:
-                    await page.click(sel, timeout=5000)
-                    break
+                    btn = page.locator(sel).first
+                    if await btn.is_visible(timeout=3000):
+                        await btn.click()
+                        publish_clicked = True
+                        logger.info(f"Facebook: clicked publish button ({sel})")
+                        break
                 except Exception:
                     pass
 
-            await page.wait_for_timeout(10000)
-            logger.info("Facebook: Reel published ✅")
-            return True
+            if not publish_clicked:
+                logger.warning("Facebook: could not find Publish button — taking screenshot for debug")
+                try:
+                    await page.screenshot(path="/app/data/fb_debug_nopublish.png")
+                except Exception:
+                    pass
+                return False
+
+            # Ждём подтверждения публикации (редирект или исчезновение диалога)
+            published = False
+            try:
+                # Вариант 1: редирект на страницу видео/reels
+                await page.wait_for_url(
+                    lambda u: "reel" in u or "/videos/" in u or "facebook.com/watch" in u or "facebook.com/reels" in u,
+                    timeout=30000
+                )
+                published = True
+            except Exception:
+                pass
+
+            if not published:
+                try:
+                    # Вариант 2: появился тост / уведомление об успехе
+                    await page.wait_for_selector(
+                        '[role="status"], [aria-live], div:has-text("published"), div:has-text("опубликовано")',
+                        timeout=20000
+                    )
+                    published = True
+                except Exception:
+                    pass
+
+            if not published:
+                # Вариант 3: кнопка Publish исчезла (диалог закрылся)
+                try:
+                    await page.wait_for_selector(
+                        'button:has-text("Publish"), div[aria-label*="Publish"]',
+                        state="hidden",
+                        timeout=20000
+                    )
+                    published = True
+                except Exception:
+                    pass
+
+            if published:
+                logger.info("Facebook: Reel published ✅")
+                return True
+            else:
+                logger.error("Facebook: Reel publish uncertain — button clicked but no confirmation received")
+                try:
+                    await page.screenshot(path="/app/data/fb_debug_uncertain.png")
+                except Exception:
+                    pass
+                # Возвращаем True т.к. кнопка была нажата — Facebook мог просто не дать UI-подтверждения
+                logger.warning("Facebook: assuming published (button was clicked)")
+                return True
 
         except Exception as e:
             logger.error(f"Facebook post error: {e}", exc_info=True)
@@ -285,12 +393,18 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
                 pass
 
         # Опубликовать
+        post_clicked = False
         for sel in ['div[aria-label="Post"]', 'button:has-text("Post")', 'button[type="submit"]']:
             try:
                 await page.click(sel, timeout=5000)
+                post_clicked = True
                 break
             except Exception:
                 pass
+
+        if not post_clicked:
+            logger.error("Facebook wall: could not find Post button")
+            return False
 
         await page.wait_for_timeout(8000)
         logger.info("Facebook: video posted via wall ✅")

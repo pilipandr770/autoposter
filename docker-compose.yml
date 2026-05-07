@@ -6,9 +6,8 @@ services:
     container_name: autoposter
     restart: unless-stopped
     env_file: .env
-    ports:
-      - "5000:5000"   # Web UI
-      - "6080:6080"   # noVNC (встроенный браузер)
+    # Порты не открываем напрямую — только через Traefik (docker-compose.prod.yml)
+    # Для локальной разработки: docker-compose.override.yml или флаг -p
     volumes:
       - ./data:/app/data   # сессии, БД, медиа — персистентны
     shm_size: "1gb"        # нужно для Chromium
