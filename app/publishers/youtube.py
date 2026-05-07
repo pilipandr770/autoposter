@@ -75,14 +75,29 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 logger.error("YouTube: session expired or not logged in")
                 return False
 
-            # Click CREATE button — try many selectors with longer wait
+            # Dismiss "Confirm your identity" / "Підтвердьте свою особу" dialog
+            # (appears when logging in from new IP)
+            for dismiss_text in ["Далі", "Next", "Далее", "Continue", "Got it"]:
+                try:
+                    btn = page.get_by_role("button", name=dismiss_text)
+                    if await btn.is_visible(timeout=3000):
+                        await btn.click()
+                        logger.info(f"YouTube: dismissed identity dialog with '{dismiss_text}'")
+                        await page.wait_for_timeout(2000)
+                        break
+                except Exception:
+                    pass
+
+            # Click CREATE button — covers Ukrainian ("Створити"), Russian ("Создать"), English ("Create")
             clicked_create = False
             create_selectors = [
                 '#create-icon',
                 'ytcp-button#create-icon',
                 'button[aria-label="Create"]',
                 'button[aria-label="Создать"]',
+                'button[aria-label="Створити"]',
                 '[aria-label="Create"]',
+                '[aria-label="Створити"]',
                 'yt-icon-button#create-icon',
                 'ytcp-icon-button#create-icon',
                 'ytcp-create-icon-renderer',
@@ -100,26 +115,27 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
 
             if not clicked_create:
                 logger.warning("YouTube: CREATE button not found — trying text search")
-                for txt in ["Create", "Создать", "Upload"]:
+                for txt in ["Створити", "Create", "Создать", "Upload"]:
                     try:
-                        await page.click(f'text="{txt}"', timeout=3000)
+                        await page.get_by_role("button", name=txt).first.click(timeout=3000)
                         clicked_create = True
+                        logger.info(f"YouTube: clicked CREATE via get_by_role: '{txt}'")
                         break
                     except Exception:
                         pass
 
             await page.wait_for_timeout(2000)
 
-            # Click "Upload video" — covers Russian ("Добавить видео") and English UI
+            # Click "Upload video" — Ukrainian, Russian, English
             upload_clicked = False
             upload_texts = [
+                "Додати відео",     # Ukrainian YouTube Studio
                 "Добавить видео",   # Russian YouTube Studio
                 "Upload video",     # English
                 "Загрузить видео",  # alternate Russian
                 "Upload",
             ]
             for text in upload_texts:
-                # Try tp-yt-paper-item (most common in YT Studio)
                 for sel in [
                     f'tp-yt-paper-item:has-text("{text}")',
                     f'ytcp-menuitem:has-text("{text}")',
@@ -137,7 +153,6 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                     break
 
             if not upload_clicked:
-                # Playwright built-in text matching (most flexible)
                 for text in upload_texts:
                     try:
                         await page.get_by_text(text, exact=True).first.click(timeout=2000)
@@ -225,7 +240,13 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
 
             # Next x3
             for _ in range(3):
-                for sel in ['#next-button', 'ytcp-button#next-button', 'button:has-text("Next")', 'button:has-text("Далее")']:
+                for sel in [
+                    '#next-button',
+                    'ytcp-button#next-button',
+                    'button:has-text("Next")',
+                    'button:has-text("Далее")',
+                    'button:has-text("Далі")',
+                ]:
                     try:
                         btn = page.locator(sel).first
                         if await btn.is_visible(timeout=3000):
@@ -245,7 +266,13 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 pass
 
             # Publish / Done
-            for sel in ['#done-button', 'ytcp-button#done-button', 'button:has-text("Publish")', 'button:has-text("Опубликовать")']:
+            for sel in [
+                '#done-button',
+                'ytcp-button#done-button',
+                'button:has-text("Publish")',
+                'button:has-text("Опубликовать")',
+                'button:has-text("Опублікувати")',
+            ]:
                 try:
                     btn = page.locator(sel).first
                     if await btn.is_visible(timeout=5000):
