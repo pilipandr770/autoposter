@@ -301,7 +301,7 @@ input:checked+.slider:before{transform:translateX(18px)}
         <button class="btn-sm btn-ghost" style="width:auto;padding:5px 12px;font-size:12px" onclick="closeBrowser()">✕</button>
       </div>
       <iframe class="vnc-frame" id="vnc-frame"
-        src="http://{{ request.host.split(':')[0] }}:{{ vnc_port }}/vnc.html?autoconnect=1&resize=scale&show_dot=1&reconnect=1&reconnect_delay=2000">
+        src="/novnc/vnc.html?path=novnc%2Fwebsockify&autoconnect=1&resize=scale&show_dot=1&reconnect=1&reconnect_delay=2000">
       </iframe>
     </div>
 

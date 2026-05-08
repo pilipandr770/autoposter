@@ -17,7 +17,7 @@ services:
       - "traefik.docker.network=traefik"
 
       # ── Web UI → HTTPS ────────────────────────────────────────────────
-      - "traefik.http.routers.autoposter.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.autoposter.rule=Host(`${DOMAIN}`) && !PathPrefix(`/novnc`)"
       - "traefik.http.routers.autoposter.entrypoints=websecure"
       - "traefik.http.routers.autoposter.tls.certresolver=letsencrypt"
       - "traefik.http.services.autoposter.loadbalancer.server.port=5000"
@@ -29,9 +29,11 @@ services:
       - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-https.redirectscheme.permanent=true"
 
-      # ── noVNC — НЕ публикуется через Traefik ─────────────────────────
-      # Доступ только через SSH-туннель:
-      # ssh -L 6080:localhost:6080 root@187.124.6.120
-      # затем открыть http://localhost:6080
-
-    # Порты закрыты на уровне базового compose-файла — пробрасывать не нужно
+      # ── noVNC → HTTPS через /novnc/ ───────────────────────────────────
+      # Доступ: https://domain.com/novnc/vnc.html
+      - "traefik.http.routers.novnc.rule=Host(`${DOMAIN}`) && PathPrefix(`/novnc`)"
+      - "traefik.http.routers.novnc.entrypoints=websecure"
+      - "traefik.http.routers.novnc.tls.certresolver=letsencrypt"
+      - "traefik.http.services.novnc.loadbalancer.server.port=6080"
+      - "traefik.http.middlewares.strip-novnc.stripprefix.prefixes=/novnc"
+      - "traefik.http.routers.novnc.middlewares=strip-novnc"
