@@ -173,42 +173,43 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 except Exception as e:
                     logger.info(f"YouTube: channel URL approach failed ({e}), trying CREATE button")
 
-            # Click CREATE button — covers multiple locales
+            # Click CREATE button — only needed if upload dialog not already open
             clicked_create = upload_dialog_present  # already open = no need to click
-            create_selectors = [
-                '#create-icon',
-                'ytcp-button#create-icon',
-                'button[aria-label="Create"]',
-                'button[aria-label="Создать"]',
-                'button[aria-label="Створити"]',
-                '[aria-label="Create"]',
-                '[aria-label="Створити"]',
-                'yt-icon-button#create-icon',
-                'ytcp-icon-button#create-icon',
-                'ytcp-create-icon-renderer',
-                '[test-id="create-icon"]',
-            ]
-            for i, sel in enumerate(create_selectors):
-                try:
-                    t = 10000 if i == 0 else 3000  # give more time for first selector
-                    await page.wait_for_selector(sel, timeout=t)
-                    await page.click(sel)
-                    clicked_create = True
-                    logger.info(f"YouTube: clicked CREATE with selector: {sel}")
-                    break
-                except Exception:
-                    pass
-
-            if not clicked_create:
-                logger.warning("YouTube: CREATE button not found — trying text search")
-                for txt in ["Створити", "Create", "Создать", "Upload", "Додати відео", "Добавить видео"]:
+            if not upload_dialog_present:
+                create_selectors = [
+                    '#create-icon',
+                    'ytcp-button#create-icon',
+                    'button[aria-label="Create"]',
+                    'button[aria-label="Создать"]',
+                    'button[aria-label="Створити"]',
+                    '[aria-label="Create"]',
+                    '[aria-label="Створити"]',
+                    'yt-icon-button#create-icon',
+                    'ytcp-icon-button#create-icon',
+                    'ytcp-create-icon-renderer',
+                    '[test-id="create-icon"]',
+                ]
+                for i, sel in enumerate(create_selectors):
                     try:
-                        await page.get_by_text(txt, exact=True).first.click(timeout=5000)
+                        t = 10000 if i == 0 else 3000  # give more time for first selector
+                        await page.wait_for_selector(sel, timeout=t)
+                        await page.click(sel)
                         clicked_create = True
-                        logger.info(f"YouTube: clicked CREATE via text: '{txt}'")
+                        logger.info(f"YouTube: clicked CREATE with selector: {sel}")
                         break
                     except Exception:
                         pass
+
+                if not clicked_create:
+                    logger.warning("YouTube: CREATE button not found — trying text search")
+                    for txt in ["Створити", "Create", "Создать", "Upload", "Додати відео", "Добавить видео"]:
+                        try:
+                            await page.get_by_text(txt, exact=True).first.click(timeout=5000)
+                            clicked_create = True
+                            logger.info(f"YouTube: clicked CREATE via text: '{txt}'")
+                            break
+                        except Exception:
+                            pass
 
             await page.wait_for_timeout(2500)
 
