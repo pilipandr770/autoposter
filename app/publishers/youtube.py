@@ -94,7 +94,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
         )
         page = await ctx.new_page()
         try:
-            # studio.youtube.com/upload is not a valid standalone URL — navigate to main Studio
+            # Navigate to main Studio first to check session
             await page.goto("https://studio.youtube.com", wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(3000)
 
@@ -132,18 +132,46 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 except Exception:
                     pass
 
-            # If the upload dialog is already visible (navigated via /upload URL),
-            # skip the CREATE button dance entirely.
+            # PRIMARY: navigate directly to /upload — this opens the upload dialog without
+            # needing to find/click the CREATE button (which changes with each UI update).
             upload_dialog_present = False
             try:
+                await page.goto("https://www.youtube.com/upload", wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(4000)
+                if "accounts.google.com" in page.url or "signin" in page.url:
+                    logger.error("YouTube: session expired after /upload redirect")
+                    return False
                 await page.wait_for_selector(
                     'ytcp-uploads-file-picker, ytcp-uploads-dialog',
-                    timeout=5000
+                    timeout=12000
                 )
                 upload_dialog_present = True
-                logger.info("YouTube: upload dialog already present — skipping CREATE button")
-            except Exception:
-                pass
+                logger.info("YouTube: upload dialog opened via /upload URL ✅")
+            except Exception as e:
+                logger.info(f"YouTube: /upload URL approach failed ({e}), trying CREATE button")
+
+            # FALLBACK: try channel-specific upload URL using channel ID from the Studio URL
+            if not upload_dialog_present:
+                try:
+                    await page.goto("https://studio.youtube.com", wait_until="networkidle", timeout=30000)
+                    await page.wait_for_timeout(2000)
+                    import re
+                    m = re.search(r'/channel/([A-Za-z0-9_-]+)', page.url)
+                    if m:
+                        cid = m.group(1)
+                        await page.goto(
+                            f"https://studio.youtube.com/channel/{cid}/videos/upload",
+                            wait_until="domcontentloaded", timeout=30000
+                        )
+                        await page.wait_for_timeout(3000)
+                        await page.wait_for_selector(
+                            'ytcp-uploads-file-picker, ytcp-uploads-dialog',
+                            timeout=10000
+                        )
+                        upload_dialog_present = True
+                        logger.info(f"YouTube: upload dialog via channel URL (channel: {cid}) ✅")
+                except Exception as e:
+                    logger.info(f"YouTube: channel URL approach failed ({e}), trying CREATE button")
 
             # Click CREATE button — covers multiple locales
             clicked_create = upload_dialog_present  # already open = no need to click
