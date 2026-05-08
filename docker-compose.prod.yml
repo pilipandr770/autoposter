@@ -17,7 +17,7 @@ services:
       - "traefik.docker.network=traefik"
 
       # ── Web UI → HTTPS ────────────────────────────────────────────────
-      - "traefik.http.routers.autoposter.rule=Host(`${DOMAIN}`) && !PathPrefix(`/novnc`)"
+      - "traefik.http.routers.autoposter.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.autoposter.entrypoints=websecure"
       - "traefik.http.routers.autoposter.tls.certresolver=letsencrypt"
       - "traefik.http.services.autoposter.loadbalancer.server.port=5000"
