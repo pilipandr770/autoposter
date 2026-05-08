@@ -143,7 +143,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                     return False
                 await page.wait_for_selector(
                     'ytcp-uploads-file-picker, ytcp-uploads-dialog',
-                    timeout=12000
+                    state="attached", timeout=12000
                 )
                 upload_dialog_present = True
                 logger.info("YouTube: upload dialog opened via /upload URL ✅")
@@ -166,7 +166,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                         await page.wait_for_timeout(3000)
                         await page.wait_for_selector(
                             'ytcp-uploads-file-picker, ytcp-uploads-dialog',
-                            timeout=10000
+                            state="attached", timeout=10000
                         )
                         upload_dialog_present = True
                         logger.info(f"YouTube: upload dialog via channel URL (channel: {cid}) ✅")
