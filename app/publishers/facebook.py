@@ -156,10 +156,15 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
         logger.error("Facebook: session not found")
         return False
 
+    os.environ["DISPLAY"] = ":99"  # Xvfb virtual display — headed mode bypasses bot detection
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]
+            headless=False,
+            args=[
+                "--no-sandbox", "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-gpu",
+            ]
         )
         ctx = await browser.new_context(
             storage_state=SESSION,
