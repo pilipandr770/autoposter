@@ -218,47 +218,48 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             except Exception:
                 pass
 
-            # Click "Upload video" — Ukrainian, Russian, English
-            upload_clicked = False
-            upload_texts = [
-                "Додати відео",     # Ukrainian YouTube Studio
-                "Добавить видео",
-                "Upload video",
-                "Загрузить видео",
-                "Upload",
-            ]
-            for text in upload_texts:
-                for sel in [
-                    f'tp-yt-paper-item:has-text("{text}")',
-                    f'ytcp-menuitem:has-text("{text}")',
-                    f'[role="menuitem"]:has-text("{text}")',
-                    f'a:has-text("{text}")',
-                ]:
-                    try:
-                        await page.click(sel, timeout=4000)
-                        upload_clicked = True
-                        logger.info(f"YouTube: clicked '{text}' with: {sel}")
-                        break
-                    except Exception:
-                        pass
-                if upload_clicked:
-                    break
-
-            if not upload_clicked:
+            # Click "Upload video" — only needed if upload dialog not already open
+            upload_clicked = upload_dialog_present  # already open = skip
+            if not upload_dialog_present:
+                upload_texts = [
+                    "Додати відео",     # Ukrainian YouTube Studio
+                    "Добавить видео",
+                    "Upload video",
+                    "Загрузить видео",
+                    "Upload",
+                ]
                 for text in upload_texts:
-                    try:
-                        await page.get_by_text(text, exact=True).first.click(timeout=4000)
-                        upload_clicked = True
-                        logger.info(f"YouTube: clicked via get_by_text: '{text}'")
+                    for sel in [
+                        f'tp-yt-paper-item:has-text("{text}")',
+                        f'ytcp-menuitem:has-text("{text}")',
+                        f'[role="menuitem"]:has-text("{text}")',
+                        f'a:has-text("{text}")',
+                    ]:
+                        try:
+                            await page.click(sel, timeout=4000)
+                            upload_clicked = True
+                            logger.info(f"YouTube: clicked '{text}' with: {sel}")
+                            break
+                        except Exception:
+                            pass
+                    if upload_clicked:
                         break
-                    except Exception:
-                        pass
 
-            if not upload_clicked:
-                logger.error("YouTube: could not click 'Upload video' menu item — saving debug screenshot")
-                await page.screenshot(path="/app/data/yt_debug_menu.png", full_page=False)
-            else:
-                logger.info("YouTube: upload dialog should be opening...")
+                if not upload_clicked:
+                    for text in upload_texts:
+                        try:
+                            await page.get_by_text(text, exact=True).first.click(timeout=4000)
+                            upload_clicked = True
+                            logger.info(f"YouTube: clicked via get_by_text: '{text}'")
+                            break
+                        except Exception:
+                            pass
+
+                if not upload_clicked:
+                    logger.error("YouTube: could not click 'Upload video' menu item — saving debug screenshot")
+                    await page.screenshot(path="/app/data/yt_debug_menu.png", full_page=False)
+                else:
+                    logger.info("YouTube: upload dialog should be opening...")
 
             await page.wait_for_timeout(4000)
             # Screenshot to see if upload dialog opened
