@@ -1,4 +1,5 @@
 import os
+import subprocess
 import logging
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from config import SESSION_FILES
@@ -54,10 +55,35 @@ async def login_youtube(username: str, password: str) -> dict:
             await browser.close()
 
 
+def _transcode_for_youtube(src: str) -> str:
+    """Re-encode to H.264/AAC so YouTube can process it reliably."""
+    if src.endswith("_yt.mp4"):
+        return src
+    dst = src.rsplit(".", 1)[0] + "_yt.mp4"
+    if os.path.exists(dst):
+        return dst
+    result = subprocess.run([
+        "ffmpeg", "-y", "-i", src,
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+        "-c:v", "libx264", "-profile:v", "high", "-level", "4.0",
+        "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+        "-movflags", "+faststart",
+        dst,
+    ], capture_output=True, text=True, timeout=300)
+    if result.returncode == 0 and os.path.exists(dst):
+        logger.info(f"YouTube: transcoded to {dst}")
+        return dst
+    logger.warning(f"YouTube: ffmpeg failed (rc={result.returncode}), using original. stderr: {result.stderr[-300:]}")
+    return src
+
+
 async def post_video(video_path: str, title: str, description: str) -> bool:
     if not os.path.exists(SESSION):
         logger.error("YouTube: session not found")
         return False
+
+    video_path = _transcode_for_youtube(video_path)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])

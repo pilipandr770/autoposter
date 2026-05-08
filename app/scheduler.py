@@ -124,6 +124,15 @@ async def _do_check_and_post():
                 logger.info(f"🗑️ Deleted media after posting: {video.file_path}")
             except Exception as e:
                 logger.warning(f"Could not delete media file: {e}")
+            # Remove transcoded copies created by publishers
+            base = video.file_path.rsplit(".", 1)[0]
+            for suffix in ("_yt.mp4", "_ig.mp4"):
+                tmp = base + suffix
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except Exception:
+                        pass
 
     # Сохраняем ID последнего видео
     if new_videos:
