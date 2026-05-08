@@ -170,6 +170,9 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
             ),
             viewport={"width": 1280, "height": 800},
         )
+        await ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
         page = await ctx.new_page()
         try:
             # Пробуем через Reels Creator
@@ -223,6 +226,12 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
                 await page.locator('input[type="file"]').first.set_input_files(video_path)
                 uploaded = True
                 logger.info("Facebook: video file set via set_input_files ✅")
+                await page.wait_for_timeout(3000)
+                try:
+                    await page.screenshot(path="/app/data/fb_debug_after_upload.png")
+                    logger.info("Facebook: saved post-upload screenshot")
+                except Exception:
+                    pass
             except Exception as e:
                 logger.warning(f"Facebook set_input_files failed: {e}")
 
@@ -248,8 +257,8 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
                 'button:has-text("Weiter")',
             ]
 
-            # Check for upload error after a short wait
-            await page.wait_for_timeout(8000)
+            # Check for upload error after a longer wait (Facebook needs time to validate)
+            await page.wait_for_timeout(25000)
             upload_failed = False
             for err_sel in [
                 ':has-text("Неможливо завантажити")',
@@ -507,7 +516,19 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
 
         # Опубликовать
         post_clicked = False
-        for sel in ['div[aria-label="Post"]', 'button:has-text("Post")', 'button[type="submit"]']:
+        for sel in [
+            'div[aria-label="Post"]',
+            'div[aria-label="Опублікувати"]',
+            'div[aria-label="Опубликовать"]',
+            'button:has-text("Post")',
+            'button:has-text("Опублікувати")',
+            'button:has-text("Опубликовать")',
+            'button:has-text("Публікація")',
+            '[role="button"]:has-text("Post")',
+            '[role="button"]:has-text("Опублікувати")',
+            '[role="button"]:has-text("Опубликовать")',
+            'button[type="submit"]',
+        ]:
             try:
                 await page.click(sel, timeout=5000)
                 post_clicked = True
@@ -517,6 +538,10 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
 
         if not post_clicked:
             logger.error("Facebook wall: could not find Post button")
+            try:
+                await page.screenshot(path="/app/data/fb_debug_wall_nopost.png")
+            except Exception:
+                pass
             return False
 
         await page.wait_for_timeout(8000)
