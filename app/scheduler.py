@@ -126,7 +126,7 @@ async def _do_check_and_post():
                 logger.warning(f"Could not delete media file: {e}")
             # Remove transcoded copies created by publishers
             base = video.file_path.rsplit(".", 1)[0]
-            for suffix in ("_yt.mp4", "_ig.mp4"):
+            for suffix in ("_yt.mp4", "_ig.mp4", "_fb.mp4"):
                 tmp = base + suffix
                 if os.path.exists(tmp):
                     try:

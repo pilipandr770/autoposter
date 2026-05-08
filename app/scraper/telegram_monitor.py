@@ -115,6 +115,14 @@ async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: s
             logger.info(f"🗑️ Deleted TG media after posting: {file_path}")
         except Exception as e:
             logger.warning(f"Could not delete TG media file: {e}")
+        base = file_path.rsplit(".", 1)[0]
+        for suffix in ("_fb.mp4", "_ig.mp4"):
+            tmp = base + suffix
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
 
 
 async def start_telegram_monitor():

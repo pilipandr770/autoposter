@@ -5,6 +5,7 @@ Facebook publisher.
 """
 import asyncio
 import os
+import subprocess
 import logging
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from config import SESSION_FILES
@@ -14,6 +15,29 @@ SESSION = SESSION_FILES["facebook"]
 
 # Глобальный lock — только одна публикация в Facebook одновременно
 _fb_lock = asyncio.Lock()
+
+
+def _transcode_for_facebook(src: str) -> str:
+    """Re-encode to H.264/AAC so Facebook can process it reliably."""
+    if src.endswith("_fb.mp4"):
+        return src
+    dst = src.rsplit(".", 1)[0] + "_fb.mp4"
+    if os.path.exists(dst):
+        return dst
+    result = subprocess.run([
+        "ffmpeg", "-y", "-i", src,
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+        "-c:v", "libx264", "-profile:v", "high", "-level", "4.0",
+        "-preset", "veryfast", "-crf", "22",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+        "-movflags", "+faststart",
+        dst,
+    ], capture_output=True, text=True, timeout=300)
+    if result.returncode == 0 and os.path.exists(dst):
+        logger.info(f"Facebook: transcoded to {dst}")
+        return dst
+    logger.warning(f"Facebook: ffmpeg failed (rc={result.returncode}), using original. stderr: {result.stderr[-300:]}")
+    return src
 
 
 async def login_facebook(username: str, password: str) -> dict:
@@ -121,6 +145,7 @@ async def login_facebook_2fa(username: str, password: str, code: str) -> dict:
 
 async def post_video(video_path: str, caption: str) -> bool:
     """Публикует видео/Reel на Facebook используя сохранённую сессию."""
+    video_path = _transcode_for_facebook(video_path)
     async with _fb_lock:
         return await _post_video_impl(video_path, caption)
 
