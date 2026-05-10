@@ -18,7 +18,14 @@ _fb_lock = asyncio.Lock()
 
 
 def _transcode_for_facebook(src: str) -> str:
-    """Re-encode to H.264/AAC so Facebook can process it reliably."""
+    """Re-encode to H.264/AAC for Facebook Reels.
+
+    Facebook Reels requirements:
+    - H.264 baseline/main profile (high profile causes "Cannot upload" errors)
+    - Resolution max 1080p, aspect ratio ideally 9:16
+    - AAC audio, max 128k
+    - yuv420p pixel format
+    """
     if src.endswith("_fb.mp4"):
         return src
     dst = src.rsplit(".", 1)[0] + "_fb.mp4"
@@ -26,9 +33,10 @@ def _transcode_for_facebook(src: str) -> str:
         return dst
     result = subprocess.run([
         "ffmpeg", "-y", "-i", src,
-        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-        "-c:v", "libx264", "-profile:v", "high", "-level", "4.0",
-        "-preset", "veryfast", "-crf", "22",
+        # Scale to max 1080px width/height keeping aspect; ensure even dimensions
+        "-vf", "scale='if(gt(iw,ih),min(1080,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+        "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
+        "-preset", "veryfast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
         "-movflags", "+faststart",
         dst,
@@ -461,19 +469,31 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
     """Fallback: публикует видео обычным постом на стене."""
     try:
         await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=30000)
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(4000)
 
         if "login" in page.url:
             return False
 
-        # Открыть диалог создания поста
+        # Скриншот главной страницы для диагностики
+        try:
+            await page.screenshot(path="/app/data/fb_debug_wall_home.png")
+        except Exception:
+            pass
+
+        # Открыть диалог создания поста — расширенный список селекторов
         for sel in [
             '[aria-label="Create a post"]',
+            '[aria-label="Створити публікацію"]',
+            '[aria-label="Создать публикацию"]',
             '[placeholder*="mind"]',
-            '[placeholder*="ум"]',
+            '[placeholder*="думаете"]',
+            '[placeholder*="думаєте"]',
+            'div[role="button"]:has-text("What\'s on your mind")',
+            'div[role="button"]:has-text("Что у вас нового")',
+            'div[role="button"]:has-text("Що у вас нового")',
         ]:
             try:
-                await page.click(sel, timeout=4000)
+                await page.click(sel, timeout=3000)
                 await page.wait_for_timeout(2000)
                 break
             except Exception:
@@ -481,12 +501,16 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
 
         # Нажать кнопку "Photo/Video" в попапе
         for sel in [
+            'div[role="button"]:has-text("Photo/video")',
             'div[role="button"]:has-text("Photo")',
             'div[role="button"]:has-text("Video")',
+            'div[role="button"]:has-text("Фото/видео")',
+            'div[role="button"]:has-text("Фото")',
             '[aria-label*="Photo"]',
+            '[aria-label*="Фото"]',
             '[aria-label*="Video"]',
-            'span:has-text("Photo")',
-            'span:has-text("Video")',
+            'span:has-text("Photo/video")',
+            'span:has-text("Фото/видео")',
         ]:
             try:
                 await page.click(sel, timeout=3000)
@@ -495,36 +519,55 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
             except Exception:
                 pass
 
-        for sel in ['div[role="button"]:has-text("Photo")', 'div[role="button"]:has-text("Video")',
-                    '[aria-label*="Photo"]', '[aria-label*="Video"]']:
+        # Ожидаем file input
+        try:
+            await page.wait_for_selector('input[type="file"]', state="attached", timeout=8000)
+            await page.locator('input[type="file"]').first.set_input_files(video_path)
+            logger.info("Facebook wall: video file set ✅")
+        except Exception as e:
+            logger.warning(f"Facebook wall: file input not found: {e}")
             try:
-                await page.click(sel, timeout=3000)
-                await page.wait_for_timeout(2000)
-                break
+                await page.screenshot(path="/app/data/fb_debug_wall_nofile.png")
             except Exception:
                 pass
+            return False
 
-        await page.wait_for_selector('input[type="file"]', state="attached", timeout=8000)
-        await page.locator('input[type="file"]').first.set_input_files(video_path)
         await page.wait_for_timeout(10000)
 
-        # Подпись
-        for sel in ['div[contenteditable="true"]', 'textarea']:
+        # Подпись — ищем поле для текста
+        for sel in [
+            'div[contenteditable="true"][aria-label*="mind"]',
+            'div[contenteditable="true"][aria-label*="думаете"]',
+            'div[contenteditable="true"][aria-label*="думаєте"]',
+            'div[contenteditable="true"]',
+            'textarea',
+        ]:
             try:
                 el = page.locator(sel).first
                 if await el.is_visible(timeout=2000):
                     await el.click()
-                    await el.fill(caption[:2000])
+                    await page.keyboard.type(caption[:2000])
+                    logger.info("Facebook wall: caption filled")
                     break
             except Exception:
                 pass
 
-        # Опубликовать
+        await page.wait_for_timeout(2000)
+
+        # Скриншот перед публикацией
+        try:
+            await page.screenshot(path="/app/data/fb_debug_wall_before_post.png")
+        except Exception:
+            pass
+
+        # Опубликовать — JS fallback если обычные кликеры не найдут кнопку
         post_clicked = False
         for sel in [
             'div[aria-label="Post"]',
             'div[aria-label="Опублікувати"]',
             'div[aria-label="Опубликовать"]',
+            '[aria-label="Post"][role="button"]',
+            '[aria-label="Опублікувати"][role="button"]',
             'button:has-text("Post")',
             'button:has-text("Опублікувати")',
             'button:has-text("Опубликовать")',
@@ -535,11 +578,38 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
             'button[type="submit"]',
         ]:
             try:
-                await page.click(sel, timeout=5000)
-                post_clicked = True
-                break
+                el = page.locator(sel).first
+                if await el.is_visible(timeout=3000):
+                    await el.click()
+                    post_clicked = True
+                    logger.info(f"Facebook wall: clicked Post via {sel}")
+                    break
             except Exception:
                 pass
+
+        # JS fallback для поиска кнопки Post
+        if not post_clicked:
+            clicked = await page.evaluate("""
+                () => {
+                    const keywords = ['post','опублікувати','опубликовать','публікація','поделиться'];
+                    const candidates = [
+                        ...document.querySelectorAll(
+                            '[role="button"], button, [aria-label]'
+                        )
+                    ];
+                    for (const el of candidates) {
+                        const txt = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+                        if (keywords.some(k => txt === k || txt.endsWith(k))) {
+                            el.click();
+                            return txt;
+                        }
+                    }
+                    return null;
+                }
+            """)
+            if clicked:
+                post_clicked = True
+                logger.info(f"Facebook wall: clicked Post via JS: '{clicked}'")
 
         if not post_clicked:
             logger.error("Facebook wall: could not find Post button")

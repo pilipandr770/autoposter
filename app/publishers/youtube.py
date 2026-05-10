@@ -8,8 +8,63 @@ logger = logging.getLogger(__name__)
 SESSION = SESSION_FILES["youtube"]
 
 
+async def _dismiss_overlay_backdrop(page) -> bool:
+    """Close tp-yt-iron-overlay-backdrop that blocks all clicks in YouTube Studio.
+
+    The backdrop appears when any paper-dialog / modal is open.
+    Strategy: Escape first, then JS-click the dialog's action button.
+    """
+    try:
+        backdrop = page.locator('tp-yt-iron-overlay-backdrop.opened')
+        if await backdrop.count() == 0:
+            return False
+
+        logger.info("YouTube: overlay backdrop detected — dismissing open dialog")
+
+        # Escape closes most YouTube dialogs
+        await page.keyboard.press('Escape')
+        await page.wait_for_timeout(1500)
+
+        if await backdrop.count() == 0:
+            logger.info("YouTube: backdrop dismissed via Escape ✅")
+            return True
+
+        # Escape didn't work — JS-click the dialog's confirm/cancel button
+        clicked = await page.evaluate("""
+            () => {
+                const keywords = ['ok','got it','понятно','далі','next','continue',
+                                  'cancel','dismiss','agree','accept','закрити','close'];
+                for (const tag of ['tp-yt-paper-dialog','ytd-dialog','dialog']) {
+                    const dlg = document.querySelector(tag);
+                    if (!dlg) continue;
+                    const btns = [...dlg.querySelectorAll(
+                        'tp-yt-paper-button, ytd-button-renderer button, button, [role="button"]'
+                    )];
+                    // Prefer confirm-like button; fallback to last button
+                    const match = btns.find(b =>
+                        keywords.some(k => b.textContent.toLowerCase().includes(k))
+                    ) || btns[btns.length - 1];
+                    if (match) { match.click(); return match.textContent.trim(); }
+                }
+                return null;
+            }
+        """)
+        await page.wait_for_timeout(1000)
+        if clicked:
+            logger.info(f"YouTube: backdrop dismissed via JS click on '{clicked}' ✅")
+        else:
+            logger.warning("YouTube: backdrop still present, no clickable button found")
+        return True
+    except Exception as e:
+        logger.warning(f"YouTube: _dismiss_overlay_backdrop error: {e}")
+        return False
+
+
 async def _dismiss_identity_dialog(page):
-    """Dismiss Google account identity/info/cookie dialogs that block the Studio UI."""
+    """Dismiss Google account identity/info/cookie dialogs and any open backdrops."""
+    # First handle the overlay backdrop (blocks all clicks)
+    await _dismiss_overlay_backdrop(page)
+
     for sel in [
         'button:has-text("Got it")',
         'button:has-text("Понятно")',
@@ -22,10 +77,13 @@ async def _dismiss_identity_dialog(page):
         '[role="button"]:has-text("Accept all")',
         'ytd-button-renderer:has-text("Got it")',
         'tp-yt-paper-button:has-text("Got it")',
+        'tp-yt-paper-button:has-text("Понятно")',
+        'tp-yt-paper-button:has-text("OK")',
+        'tp-yt-paper-button:has-text("Cancel")',
     ]:
         try:
             el = page.locator(sel).first
-            if await el.is_visible(timeout=1500):
+            if await el.is_visible(timeout=1000):
                 await el.click()
                 logger.info(f"YouTube: dismissed dialog with: {sel}")
                 await page.wait_for_timeout(1000)
@@ -170,6 +228,10 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 except Exception:
                     pass
 
+            # Dismiss any open backdrops before starting upload flow
+            await _dismiss_overlay_backdrop(page)
+            await page.wait_for_timeout(500)
+
             # PRIMARY: navigate directly to /upload — this opens the upload dialog without
             # needing to find/click the CREATE button (which changes with each UI update).
             upload_dialog_present = False
@@ -179,6 +241,8 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 if "accounts.google.com" in page.url or "signin" in page.url:
                     logger.error("YouTube: session expired after /upload redirect")
                     return False
+                # Dismiss backdrop that may appear right after navigation
+                await _dismiss_overlay_backdrop(page)
                 await page.wait_for_selector(
                     'ytcp-uploads-file-picker, ytcp-uploads-dialog',
                     state="attached", timeout=12000
@@ -210,6 +274,9 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                         logger.info(f"YouTube: upload dialog via channel URL (channel: {cid}) ✅")
                 except Exception as e:
                     logger.info(f"YouTube: channel URL approach failed ({e}), trying CREATE button")
+
+            # Dismiss backdrop before clicking CREATE
+            await _dismiss_overlay_backdrop(page)
 
             # Click CREATE button — only needed if upload dialog not already open
             clicked_create = upload_dialog_present  # already open = no need to click
@@ -386,8 +453,9 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             except Exception:
                 pass
 
-            # Next x3
-            for _ in range(3):
+            # Next x3 — dismiss backdrop before each step
+            for step in range(3):
+                await _dismiss_overlay_backdrop(page)
                 for sel in [
                     '#next-button',
                     'ytcp-button#next-button',
@@ -405,6 +473,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                         pass
 
             # Public
+            await _dismiss_overlay_backdrop(page)
             try:
                 public = page.locator('tp-yt-paper-radio-button[name="PUBLIC"]')
                 if await public.is_visible(timeout=5000):
@@ -414,6 +483,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 pass
 
             # Publish / Done
+            await _dismiss_overlay_backdrop(page)
             for sel in [
                 '#done-button',
                 'ytcp-button#done-button',
