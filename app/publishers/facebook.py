@@ -251,17 +251,23 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
                 'div[aria-label="Далі"]',
                 'div[aria-label="Далее"]',
                 'div[aria-label="Weiter"]',
+                'div[aria-label="Continue"]',
+                'div[aria-label="Продовжити"]',
                 '[role="button"][aria-label="Next"]',
                 '[role="button"][aria-label="Далі"]',
                 '[role="button"][aria-label="Далее"]',
-                '[role="button"][aria-label="Weiter"]',
+                '[role="button"][aria-label="Continue"]',
+                '[role="button"][aria-label="Продовжити"]',
                 '[role="button"]:has-text("Next")',
                 '[role="button"]:has-text("Далі")',
                 '[role="button"]:has-text("Далее")',
-                '[role="button"]:has-text("Weiter")',
+                '[role="button"]:has-text("Continue")',
+                '[role="button"]:has-text("Продовжити")',
                 'button:has-text("Next")',
                 'button:has-text("Далі")',
                 'button:has-text("Далее")',
+                'button:has-text("Continue")',
+                'button:has-text("Продовжити")',
                 'button:has-text("Weiter")',
             ]
 
@@ -309,6 +315,37 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
 
             if not next_appeared:
                 logger.warning("Facebook: Next button never appeared after 5min — falling back to wall post")
+                # Dump all visible buttons/roles to understand what Facebook shows
+                try:
+                    page_state = await page.evaluate("""
+                        () => {
+                            const info = [];
+                            // All visible buttons and role=button elements
+                            document.querySelectorAll(
+                                'button, [role="button"], [aria-label], input[type="submit"]'
+                            ).forEach(el => {
+                                if (el.offsetParent !== null) {  // visible
+                                    info.push({
+                                        tag: el.tagName,
+                                        text: (el.textContent || '').trim().slice(0, 60),
+                                        aria: el.getAttribute('aria-label') || '',
+                                        disabled: el.disabled || el.getAttribute('aria-disabled') === 'true',
+                                    });
+                                }
+                            });
+                            // Also get all visible headings and status messages
+                            const texts = [];
+                            document.querySelectorAll('h1,h2,h3,[role="status"],[role="alert"],[aria-live]').forEach(el => {
+                                const t = (el.textContent || '').trim().slice(0, 100);
+                                if (t) texts.push(t);
+                            });
+                            return {buttons: info.slice(0, 20), messages: texts.slice(0, 10)};
+                        }
+                    """)
+                    logger.warning(f"Facebook: page state at timeout — buttons: {page_state.get('buttons', [])}")
+                    logger.warning(f"Facebook: page messages: {page_state.get('messages', [])}")
+                except Exception as e:
+                    logger.warning(f"Facebook: could not dump page state: {e}")
                 try:
                     await page.screenshot(path="/app/data/fb_debug_no_next.png")
                 except Exception:
