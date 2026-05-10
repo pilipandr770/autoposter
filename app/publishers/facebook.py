@@ -20,21 +20,16 @@ _fb_lock = asyncio.Lock()
 def _transcode_for_facebook(src: str) -> str:
     """Re-encode to H.264/AAC for Facebook Reels.
 
-    Facebook Reels requirements:
-    - H.264 baseline/main profile (high profile causes "Cannot upload" errors)
-    - Resolution max 1080p, aspect ratio ideally 9:16
-    - AAC audio, max 128k
-    - yuv420p pixel format
+    Facebook Reels rejects H.264 high profile — use main profile instead.
     """
     if src.endswith("_fb.mp4"):
         return src
     dst = src.rsplit(".", 1)[0] + "_fb.mp4"
     if os.path.exists(dst):
-        return dst
+        os.remove(dst)  # always re-encode to pick up latest settings
     result = subprocess.run([
         "ffmpeg", "-y", "-i", src,
-        # Scale to max 1080px width/height keeping aspect; ensure even dimensions
-        "-vf", "scale='if(gt(iw,ih),min(1080,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
         "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
         "-preset", "veryfast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
@@ -532,7 +527,16 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
                 pass
             return False
 
-        await page.wait_for_timeout(10000)
+        # Ждём пока Facebook обработает видео (прогресс-бар загрузки)
+        logger.info("Facebook wall: waiting for video to upload (up to 60s)...")
+        for _ in range(12):
+            await page.wait_for_timeout(5000)
+            # Проверяем исчез ли прогресс-бар загрузки
+            uploading = await page.evaluate("""
+                () => !!document.querySelector('[role="progressbar"], [aria-label*="upload" i], [aria-label*="завантаж" i]')
+            """)
+            if not uploading:
+                break
 
         # Подпись — ищем поле для текста
         for sel in [
@@ -552,17 +556,18 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
             except Exception:
                 pass
 
-        await page.wait_for_timeout(2000)
+        # Ещё немного ждём чтобы кнопка Post стала активной
+        await page.wait_for_timeout(3000)
 
         # Скриншот перед публикацией
         try:
             await page.screenshot(path="/app/data/fb_debug_wall_before_post.png")
+            logger.info("Facebook wall: screenshot saved before post")
         except Exception:
             pass
 
-        # Опубликовать — JS fallback если обычные кликеры не найдут кнопку
-        post_clicked = False
-        for sel in [
+        # Опубликовать — сначала обычные селекторы, потом JS
+        POST_SELS = [
             'div[aria-label="Post"]',
             'div[aria-label="Опублікувати"]',
             'div[aria-label="Опубликовать"]',
@@ -576,30 +581,31 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
             '[role="button"]:has-text("Опублікувати")',
             '[role="button"]:has-text("Опубликовать")',
             'button[type="submit"]',
-        ]:
-            try:
-                el = page.locator(sel).first
-                if await el.is_visible(timeout=3000):
-                    await el.click()
-                    post_clicked = True
-                    logger.info(f"Facebook wall: clicked Post via {sel}")
-                    break
-            except Exception:
-                pass
+        ]
+        post_clicked = False
 
-        # JS fallback для поиска кнопки Post
-        if not post_clicked:
+        # Polling: пробуем найти кнопку в течение 60 секунд
+        for attempt in range(12):
+            for sel in POST_SELS:
+                try:
+                    el = page.locator(sel).first
+                    if await el.is_visible(timeout=1000) and await el.is_enabled():
+                        await el.click()
+                        post_clicked = True
+                        logger.info(f"Facebook wall: clicked Post via {sel} (attempt {attempt+1})")
+                        break
+                except Exception:
+                    pass
+            if post_clicked:
+                break
+
+            # JS fallback — ищет любую кнопку с нужным текстом или aria-label
             clicked = await page.evaluate("""
                 () => {
-                    const keywords = ['post','опублікувати','опубликовать','публікація','поделиться'];
-                    const candidates = [
-                        ...document.querySelectorAll(
-                            '[role="button"], button, [aria-label]'
-                        )
-                    ];
-                    for (const el of candidates) {
+                    const kw = ['post','опублікувати','опубликовать','публікація','поделиться','публікувати'];
+                    for (const el of document.querySelectorAll('[role="button"], button, [aria-label]')) {
                         const txt = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
-                        if (keywords.some(k => txt === k || txt.endsWith(k))) {
+                        if (kw.some(k => txt.includes(k)) && !el.disabled && el.offsetParent !== null) {
                             el.click();
                             return txt;
                         }
@@ -609,7 +615,10 @@ async def _post_video_wall(page, video_path: str, caption: str) -> bool:
             """)
             if clicked:
                 post_clicked = True
-                logger.info(f"Facebook wall: clicked Post via JS: '{clicked}'")
+                logger.info(f"Facebook wall: clicked Post via JS: '{clicked}' (attempt {attempt+1})")
+                break
+
+            await page.wait_for_timeout(5000)
 
         if not post_clicked:
             logger.error("Facebook wall: could not find Post button")
