@@ -15,6 +15,7 @@ class TikTokVideo:
     id: str
     title: str
     file_path: str
+    description: Optional[str] = None
     thumbnail: Optional[str] = None
 
 
@@ -53,8 +54,9 @@ async def get_new_videos(username: str, last_known_id: str = None) -> list[TikTo
         if last_known_id and vid_id == last_known_id:
             break
 
-        title = entry.get("title") or entry.get("description") or "TikTok video"
-        title = title[:200]
+        raw_desc = entry.get("description") or entry.get("title") or "TikTok video"
+        title = raw_desc[:200]
+        description = raw_desc  # полное описание для YouTube
 
         # Скачиваем видео без watermark
         file_path = await _download_video(url, vid_id, username)
@@ -66,9 +68,27 @@ async def get_new_videos(username: str, last_known_id: str = None) -> list[TikTo
             id=vid_id,
             title=title,
             file_path=file_path,
+            description=description,
         ))
 
     return new_videos
+
+
+_TIKTOK_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+_YTDLP_COMMON = [
+    "--user-agent", _TIKTOK_UA,
+    "--add-header", "Accept-Language:en-US,en;q=0.9",
+    "--add-header", "Referer:https://www.tiktok.com/",
+    "--no-warnings",
+    "--retries", "3",
+    "--fragment-retries", "3",
+    "--extractor-retries", "3",
+]
 
 
 async def _get_playlist_info(url: str) -> dict:
@@ -78,7 +98,7 @@ async def _get_playlist_info(url: str) -> dict:
         "--dump-json",
         "--flat-playlist",
         "--playlist-end", "10",        # только последние 10
-        "--no-warnings",
+        *_YTDLP_COMMON,
         url
     ]
 
@@ -89,8 +109,10 @@ async def _get_playlist_info(url: str) -> dict:
     )
     stdout, stderr = await proc.communicate()
 
+    stderr_text = stderr.decode()
     if proc.returncode != 0:
-        raise RuntimeError(stderr.decode())
+        logger.error(f"TikTok yt-dlp playlist error: {stderr_text[:500]}")
+        raise RuntimeError(stderr_text)
 
     entries = []
     for line in stdout.decode().splitlines():
@@ -101,6 +123,7 @@ async def _get_playlist_info(url: str) -> dict:
             except Exception:
                 pass
 
+    logger.info(f"TikTok: got {len(entries)} entries from playlist")
     return {"entries": entries}
 
 
@@ -121,7 +144,7 @@ async def _download_video(profile_url: str, video_id: str, username: str) -> Opt
         "yt-dlp",
         "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "--merge-output-format", "mp4",
-        "--no-warnings",
+        *_YTDLP_COMMON,
         "-o", output_tmpl,
         video_url
     ]

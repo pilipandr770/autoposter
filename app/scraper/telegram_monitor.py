@@ -1,7 +1,7 @@
 ﻿"""
 Telegram Channel Monitor.
 Слушает новые посты в Telegram канале (через бота).
-Видео из канала → публикуются в Instagram и Facebook.
+Видео и фото из канала → публикуются в Instagram и Facebook.
 
 Требования:
 - Бот добавлен в канал как администратор (или участник)
@@ -21,11 +21,11 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-async def _download_tg_video(bot: Bot, file_id: str, dest_dir: str) -> str | None:
-    """Скачивает видео из Telegram по file_id."""
+async def _download_tg_file(bot: Bot, file_id: str, dest_dir: str, ext: str = "mp4") -> str | None:
+    """Скачивает файл из Telegram по file_id."""
     try:
         os.makedirs(dest_dir, exist_ok=True)
-        dest = os.path.join(dest_dir, f"tg_{file_id[:24]}.mp4")
+        dest = os.path.join(dest_dir, f"tg_{file_id[:24]}.{ext}")
         if os.path.exists(dest):
             return dest
         file = await bot.get_file(file_id)
@@ -37,31 +37,26 @@ async def _download_tg_video(bot: Bot, file_id: str, dest_dir: str) -> str | Non
         return None
 
 
-async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: str):
-    """Обрабатывает новый пост из Telegram канала."""
-    # Фильтруем по channel ID — обрабатываем только наш канал
-    if allowed_channel_id:
-        chat_id = str(message.chat.id)
-        # channel_id может быть @username или -100xxxxxxxxxx
-        if allowed_channel_id.startswith("@"):
-            chat_username = f"@{message.chat.username}" if message.chat.username else ""
-            if chat_username.lower() != allowed_channel_id.lower():
-                return
-        else:
-            if chat_id != allowed_channel_id:
-                return
+def _check_channel(message: Message, allowed_channel_id: str) -> bool:
+    """Возвращает True если сообщение из разрешённого канала."""
+    if not allowed_channel_id:
+        return True
+    chat_id = str(message.chat.id)
+    if allowed_channel_id.startswith("@"):
+        chat_username = f"@{message.chat.username}" if message.chat.username else ""
+        return chat_username.lower() == allowed_channel_id.lower()
+    return chat_id == allowed_channel_id
 
-    # Принимаем только видео
-    video = message.video or (
-        message.document
-        if message.document
-        and message.document.mime_type
-        and message.document.mime_type.startswith("video/")
-        else None
-    )
-    if not video:
-        return
 
+async def _process_media_post(
+    message: Message,
+    bot: Bot,
+    file_id: str,
+    file_ext: str,
+    caption: str,
+    post_label: str,
+):
+    """Общая логика обработки поста с медиа (видео или фото)."""
     tg_post_id = f"tg_{message.message_id}"
     if is_posted(tg_post_id):
         return
@@ -73,10 +68,9 @@ async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: s
         logger.info("Telegram→Instagram and Telegram→Facebook both disabled, skipping")
         return
 
-    caption = message.caption or ""
-    logger.info(f"Telegram monitor: new video post #{message.message_id}")
+    logger.info(f"Telegram monitor: new {post_label} post #{message.message_id}, caption={caption[:60]!r}")
 
-    file_path = await _download_tg_video(bot, video.file_id, settings.MEDIA_DIR)
+    file_path = await _download_tg_file(bot, file_id, settings.MEDIA_DIR, ext=file_ext)
     if not file_path:
         logger.error(f"Telegram monitor: failed to download post #{message.message_id}")
         return
@@ -123,6 +117,51 @@ async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: s
                     os.remove(tmp)
                 except Exception:
                     pass
+
+
+async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: str):
+    """Обрабатывает новый пост из Telegram канала (видео или фото)."""
+    if not _check_channel(message, allowed_channel_id):
+        return
+
+    caption = message.caption or message.text or ""
+
+    # Видео (прямое или документ с video/* MIME)
+    if message.video:
+        await _process_media_post(
+            message, bot,
+            file_id=message.video.file_id,
+            file_ext="mp4",
+            caption=caption,
+            post_label="video",
+        )
+        return
+
+    if (
+        message.document
+        and message.document.mime_type
+        and message.document.mime_type.startswith("video/")
+    ):
+        await _process_media_post(
+            message, bot,
+            file_id=message.document.file_id,
+            file_ext="mp4",
+            caption=caption,
+            post_label="video-document",
+        )
+        return
+
+    # Фото (берём наибольшее по размеру)
+    if message.photo:
+        best = max(message.photo, key=lambda p: p.file_size or 0)
+        await _process_media_post(
+            message, bot,
+            file_id=best.file_id,
+            file_ext="jpg",
+            caption=caption,
+            post_label="photo",
+        )
+        return
 
 
 async def start_telegram_monitor():

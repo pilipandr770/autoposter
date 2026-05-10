@@ -69,11 +69,12 @@ async def _do_check_and_post():
 
         errors = []
         posted_to = []
+        _desc = (getattr(video, "description", None) or video.title)
 
         # Instagram
         ig_enabled = get_setting("enable_instagram", "0") == "1"
         if ig_enabled and not _posted(existing, "posted_ig"):
-            ok = await instagram.post_reel(video.file_path, video.title)
+            ok = await instagram.post_reel(video.file_path, _desc)
             if ok:
                 mark_posted(video.id, "instagram")
                 posted_to.append("instagram")
@@ -84,7 +85,7 @@ async def _do_check_and_post():
         # YouTube
         yt_enabled = get_setting("enable_youtube", "1") == "1"
         if yt_enabled and not _posted(existing, "posted_yt"):
-            ok = await youtube.post_video(video.file_path, video.title, video.title)
+            ok = await youtube.post_video(video.file_path, video.title, _desc)
             if ok:
                 mark_posted(video.id, "youtube")
                 posted_to.append("youtube")
@@ -95,7 +96,7 @@ async def _do_check_and_post():
         # Facebook
         fb_enabled = get_setting("enable_facebook", "1") == "1"
         if fb_enabled and not _posted(existing, "posted_fb"):
-            ok = await facebook.post_video(video.file_path, video.title)
+            ok = await facebook.post_video(video.file_path, _desc)
             if ok:
                 mark_posted(video.id, "facebook")
                 posted_to.append("facebook")
@@ -106,7 +107,7 @@ async def _do_check_and_post():
         # Telegram
         tg_enabled = get_setting("enable_telegram", "0") == "1"
         if tg_enabled and not _posted(existing, "posted_tg"):
-            ok = await telegram.post_video(video.file_path, video.title)
+            ok = await telegram.post_video(video.file_path, _desc)
             if ok:
                 mark_posted(video.id, "telegram")
                 posted_to.append("telegram")

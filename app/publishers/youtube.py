@@ -8,6 +8,33 @@ logger = logging.getLogger(__name__)
 SESSION = SESSION_FILES["youtube"]
 
 
+async def _dismiss_identity_dialog(page):
+    """Dismiss Google account identity/info/cookie dialogs that block the Studio UI."""
+    for sel in [
+        'button:has-text("Got it")',
+        'button:has-text("Понятно")',
+        'button:has-text("Dismiss")',
+        'button:has-text("Accept all")',
+        'button:has-text("I agree")',
+        'button:has-text("Agree")',
+        '[role="button"]:has-text("Got it")',
+        '[role="button"]:has-text("Dismiss")',
+        '[role="button"]:has-text("Accept all")',
+        'ytd-button-renderer:has-text("Got it")',
+        'tp-yt-paper-button:has-text("Got it")',
+    ]:
+        try:
+            el = page.locator(sel).first
+            if await el.is_visible(timeout=1500):
+                await el.click()
+                logger.info(f"YouTube: dismissed dialog with: {sel}")
+                await page.wait_for_timeout(1000)
+                return True
+        except Exception:
+            pass
+    return False
+
+
 async def login_youtube(username: str, password: str) -> dict:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
@@ -85,12 +112,23 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
 
     video_path = _transcode_for_youtube(video_path)
 
+    os.environ["DISPLAY"] = ":99"  # Xvfb virtual display — headed mode bypasses bot detection
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        browser = await p.chromium.launch(
+            headless=False,
+            args=[
+                "--no-sandbox", "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-gpu",
+            ],
+        )
         ctx = await browser.new_context(
             storage_state=SESSION,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 900},
+        )
+        await ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         )
         page = await ctx.new_page()
         try:
