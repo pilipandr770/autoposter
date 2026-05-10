@@ -295,6 +295,30 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
             logger.info("Facebook: waiting for video to upload and Next button to appear...")
             next_appeared = False
             for attempt in range(60):  # 60 * 5s = 5 min
+                # ── Быстрый выход: страница ушла с Reels Creator ──────────────
+                current_url = page.url
+                if "reels/create" not in current_url:
+                    logger.warning(
+                        f"Facebook: navigated away from Reels Creator → {current_url[:80]}"
+                        " — Reels unavailable for this account, falling back to wall post"
+                    )
+                    return await _post_video_wall(page, video_path, caption)
+
+                # ── Проверяем наличие сообщения "страница недоступна" ─────────
+                unavailable = await page.evaluate("""
+                    () => {
+                        const kw = ['недоступна','unavailable','nicht verfügbar','недоступен'];
+                        for (const el of document.querySelectorAll('[role="alert"],[aria-live],[role="status"],h1,h2,h3')) {
+                            const t = (el.textContent || '').toLowerCase();
+                            if (kw.some(k => t.includes(k))) return el.textContent.trim().slice(0,80);
+                        }
+                        return null;
+                    }
+                """)
+                if unavailable:
+                    logger.warning(f"Facebook: Reels page unavailable — '{unavailable}', falling back to wall post")
+                    return await _post_video_wall(page, video_path, caption)
+
                 for sel in next_selectors:
                     try:
                         if await page.locator(sel).first.is_visible():
