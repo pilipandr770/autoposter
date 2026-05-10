@@ -285,10 +285,10 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
             if upload_failed:
                 return await _post_video_wall(page, video_path, caption)
 
-            # Poll up to 3 minutes for Next/Далі button to appear (upload can be slow)
+            # Poll up to 5 minutes for Next/Далі button to appear (upload + processing can be slow)
             logger.info("Facebook: waiting for video to upload and Next button to appear...")
             next_appeared = False
-            for _ in range(34):  # 34 * 5s ≈ 3 min (minus the 8s already waited)
+            for attempt in range(60):  # 60 * 5s = 5 min
                 for sel in next_selectors:
                     try:
                         if await page.locator(sel).first.is_visible():
@@ -298,10 +298,21 @@ async def _post_video_impl(video_path: str, caption: str) -> bool:
                         pass
                 if next_appeared:
                     break
+                # Every 30s take a screenshot to track progress
+                if attempt % 6 == 0:
+                    try:
+                        await page.screenshot(path=f"/app/data/fb_debug_upload_t{attempt*5}s.png")
+                        logger.info(f"Facebook: upload progress screenshot at t+{attempt*5}s")
+                    except Exception:
+                        pass
                 await page.wait_for_timeout(5000)
 
             if not next_appeared:
-                logger.warning("Facebook: Next button never appeared after 3min — falling back to wall post")
+                logger.warning("Facebook: Next button never appeared after 5min — falling back to wall post")
+                try:
+                    await page.screenshot(path="/app/data/fb_debug_no_next.png")
+                except Exception:
+                    pass
                 return await _post_video_wall(page, video_path, caption)
 
             # Шаг 1: кнопка "Далі" / "Next" — click until it disappears (up to 5 steps)
