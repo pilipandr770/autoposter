@@ -34,11 +34,39 @@ def create_flask_app():
         finally:
             loop.close()
 
+    def _facebook_session_valid() -> bool:
+        """Возвращает True только если в facebook.json есть cookie c_user (реальный вход)."""
+        path = SESSION_FILES["facebook"]
+        if not os.path.exists(path):
+            return False
+        try:
+            import json
+            with open(path) as f:
+                data = json.load(f)
+            cookies = data.get("cookies", [])
+            return any(c.get("name") == "c_user" for c in cookies)
+        except Exception:
+            return False
+
+    def _youtube_session_valid() -> bool:
+        """Возвращает True только если в youtube.json есть cookie SID (реальный вход)."""
+        path = SESSION_FILES["youtube"]
+        if not os.path.exists(path):
+            return False
+        try:
+            import json
+            with open(path) as f:
+                data = json.load(f)
+            cookies = data.get("cookies", [])
+            return any(c.get("name") == "SID" for c in cookies)
+        except Exception:
+            return False
+
     def platform_status():
         return {
             "instagram": instagram_is_native_session(),
-            "youtube":   os.path.exists(SESSION_FILES["youtube"]),
-            "facebook":  os.path.exists(SESSION_FILES["facebook"]),
+            "youtube":   _youtube_session_valid(),
+            "facebook":  _facebook_session_valid(),
             "telegram":  bool(get_setting("telegram_token") or settings.TELEGRAM_BOT_TOKEN),
         }
 

@@ -64,6 +64,7 @@ def _transcode_for_youtube(src: str) -> str:
         return dst
     result = subprocess.run([
         "ffmpeg", "-y", "-i", src,
+        "-threads", "2",
         "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
         "-c:v", "libx264", "-profile:v", "high", "-level", "4.0",
         "-preset", "veryfast", "-crf", "20",
@@ -76,6 +77,47 @@ def _transcode_for_youtube(src: str) -> str:
         return dst
     logger.warning(f"YouTube: ffmpeg failed (rc={result.returncode}), using original. stderr: {result.stderr[-300:]}")
     return src
+
+
+async def _dismiss_identity_dialog(page) -> bool:
+    """Dismiss 'Підтвердьте свою особу' and similar dialogs via JS (traverses shadow DOM)."""
+    result = await page.evaluate("""
+        () => {
+            // Remove all backdrops that block pointer events
+            document.querySelectorAll(
+                'tp-yt-iron-overlay-backdrop, ytcp-dialog-backdrop, [class*="backdrop"]'
+            ).forEach(el => el.remove());
+
+            // JS-click the dismiss button — traverses shadow DOM
+            const texts = ['Далі', 'Next', 'Continue', 'Далее', 'Got it', 'Понятно', 'OK', 'Ок'];
+            const sels  = ['button', '[role="button"]', 'tp-yt-paper-button', 'ytcp-button'];
+
+            function findAndClick(root) {
+                for (const sel of sels) {
+                    for (const el of root.querySelectorAll(sel)) {
+                        const txt = (el.innerText || el.textContent || '').trim();
+                        if (texts.some(t => txt === t || txt.startsWith(t))) {
+                            el.click();
+                            return txt;
+                        }
+                    }
+                }
+                for (const el of root.querySelectorAll('*')) {
+                    if (el.shadowRoot) {
+                        const r = findAndClick(el.shadowRoot);
+                        if (r) return r;
+                    }
+                }
+                return null;
+            }
+            return findAndClick(document);
+        }
+    """)
+    if result:
+        logger.info(f"YouTube: dismissed identity dialog via JS, clicked '{result}'")
+        await page.wait_for_timeout(2000)
+        return True
+    return False
 
 
 async def post_video(video_path: str, title: str, description: str) -> bool:
@@ -99,38 +141,11 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             await page.wait_for_timeout(3000)
 
             # Try dismissing any account verification / info dialogs that block UI
-            try:
-                await _dismiss_identity_dialog(page)
-            except Exception:
-                pass
+            await _dismiss_identity_dialog(page)
 
             if "accounts.google.com" in page.url or "signin" in page.url:
                 logger.error("YouTube: session expired or not logged in")
                 return False
-
-            # Dismiss identity/info dialogs — use CSS selectors with .first to avoid strict-mode errors
-            for dismiss_sel in [
-                'button:has-text("Далі")',
-                'button:has-text("Next")',
-                'button:has-text("Continue")',
-                'button:has-text("Далее")',
-                'button:has-text("Got it")',
-                'button:has-text("Понятно")',
-                '[role="button"]:has-text("Далі")',
-                '[role="button"]:has-text("Next")',
-                '[role="button"]:has-text("Continue")',
-                'tp-yt-paper-button:has-text("Далі")',
-                'tp-yt-paper-button:has-text("Next")',
-            ]:
-                try:
-                    el = page.locator(dismiss_sel).first
-                    if await el.is_visible(timeout=2000):
-                        await el.click()
-                        logger.info(f"YouTube: dismissed dialog with: {dismiss_sel}")
-                        await page.wait_for_timeout(2000)
-                        break
-                except Exception:
-                    pass
 
             # PRIMARY: navigate directly to /upload — this opens the upload dialog without
             # needing to find/click the CREATE button (which changes with each UI update).
@@ -141,12 +156,26 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                 if "accounts.google.com" in page.url or "signin" in page.url:
                     logger.error("YouTube: session expired after /upload redirect")
                     return False
-                await page.wait_for_selector(
-                    'ytcp-uploads-file-picker, ytcp-uploads-dialog',
-                    state="attached", timeout=12000
-                )
-                upload_dialog_present = True
-                logger.info("YouTube: upload dialog opened via /upload URL ✅")
+                # Dismiss identity/verification dialogs before waiting for upload dialog
+                await _dismiss_identity_dialog(page)
+                # Try standard selector first
+                try:
+                    await page.wait_for_selector(
+                        'ytcp-uploads-file-picker, ytcp-uploads-dialog',
+                        state="attached", timeout=12000
+                    )
+                    upload_dialog_present = True
+                    logger.info("YouTube: upload dialog opened via /upload URL ✅")
+                except Exception:
+                    # wait_for_selector can fail even when element is present (shadow DOM).
+                    # Fall back to JS check.
+                    found = await page.evaluate("""
+                        () => !!(document.querySelector('ytcp-uploads-dialog') ||
+                                 document.querySelector('ytcp-uploads-file-picker'))
+                    """)
+                    if found:
+                        upload_dialog_present = True
+                        logger.info("YouTube: upload dialog confirmed via JS fallback ✅")
             except Exception as e:
                 logger.info(f"YouTube: /upload URL approach failed ({e}), trying CREATE button")
 
@@ -164,6 +193,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                             wait_until="domcontentloaded", timeout=30000
                         )
                         await page.wait_for_timeout(3000)
+                        await _dismiss_identity_dialog(page)
                         await page.wait_for_selector(
                             'ytcp-uploads-file-picker, ytcp-uploads-dialog',
                             state="attached", timeout=10000
@@ -193,7 +223,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                     try:
                         t = 10000 if i == 0 else 3000  # give more time for first selector
                         await page.wait_for_selector(sel, timeout=t)
-                        await page.click(sel)
+                        await page.click(sel, force=True)
                         clicked_create = True
                         logger.info(f"YouTube: clicked CREATE with selector: {sel}")
                         break
@@ -201,34 +231,61 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                         pass
 
                 if not clicked_create:
-                    logger.warning("YouTube: CREATE button not found — trying text search")
-                    for txt in ["Створити", "Create", "Создать", "Upload", "Додати відео", "Добавить видео"]:
-                        try:
-                            await page.get_by_text(txt, exact=True).first.click(timeout=5000)
-                            clicked_create = True
-                            logger.info(f"YouTube: clicked CREATE via text: '{txt}'")
-                            break
-                        except Exception:
-                            pass
+                    # JS shadow-DOM traversal — CSS selectors don't pierce shadow roots
+                    js_result = await page.evaluate("""
+                        () => {
+                            function findAndClick(root) {
+                                // Direct id/selector match
+                                const direct = root.querySelector(
+                                    '#create-icon, ytcp-create-icon-renderer, [id="create-icon"]'
+                                );
+                                if (direct) { direct.click(); return 'direct:' + (direct.id || direct.tagName); }
+                                // Text-based match on buttons/roles
+                                const CREATE_TEXTS = ['Створити', 'Create', 'Создать'];
+                                for (const el of root.querySelectorAll('*')) {
+                                    const role = el.getAttribute('role');
+                                    const tag  = el.tagName.toLowerCase();
+                                    if (tag === 'button' || role === 'button' ||
+                                        tag.startsWith('ytcp') || tag.startsWith('yt-')) {
+                                        const txt = (el.innerText || el.textContent || '').trim();
+                                        if (CREATE_TEXTS.some(t => txt === t || txt.endsWith(t))) {
+                                            el.click();
+                                            return 'js-text:' + txt;
+                                        }
+                                    }
+                                    if (el.shadowRoot) {
+                                        const r = findAndClick(el.shadowRoot);
+                                        if (r) return r;
+                                    }
+                                }
+                                return null;
+                            }
+                            return findAndClick(document);
+                        }
+                    """)
+                    if js_result:
+                        clicked_create = True
+                        logger.info(f"YouTube: clicked CREATE via JS shadow-DOM: {js_result}")
+                    else:
+                        logger.warning("YouTube: CREATE button not found in shadow DOM either")
 
-            await page.wait_for_timeout(2500)
+            await page.wait_for_timeout(3500)
 
             # Dismiss again after navigation, in case a dialog appeared
-            try:
-                await _dismiss_identity_dialog(page)
-            except Exception:
-                pass
+            await _dismiss_identity_dialog(page)
 
             # Click "Upload video" — only needed if upload dialog not already open
             upload_clicked = upload_dialog_present  # already open = skip
             if not upload_dialog_present:
                 upload_texts = [
-                    "Додати відео",     # Ukrainian YouTube Studio
+                    "Завантажити відео",  # Ukrainian YouTube Studio (current)
+                    "Додати відео",       # Ukrainian YouTube Studio (alt)
                     "Добавить видео",
                     "Upload video",
                     "Загрузить видео",
                     "Upload",
                 ]
+                # First: CSS selector approach (force=True bypasses backdrop)
                 for text in upload_texts:
                     for sel in [
                         f'tp-yt-paper-item:has-text("{text}")',
@@ -237,7 +294,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                         f'a:has-text("{text}")',
                     ]:
                         try:
-                            await page.click(sel, timeout=4000)
+                            await page.click(sel, timeout=4000, force=True)
                             upload_clicked = True
                             logger.info(f"YouTube: clicked '{text}' with: {sel}")
                             break
@@ -247,14 +304,55 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
                         break
 
                 if not upload_clicked:
+                    # JS shadow-DOM traversal for dropdown item
+                    # Clicking the item may trigger page navigation → TargetClosedError is OK
                     for text in upload_texts:
                         try:
-                            await page.get_by_text(text, exact=True).first.click(timeout=4000)
-                            upload_clicked = True
-                            logger.info(f"YouTube: clicked via get_by_text: '{text}'")
+                            js_r = await page.evaluate(f"""
+                                () => {{
+                                    const MENU_SELS = [
+                                        'tp-yt-paper-item', 'ytcp-menuitem',
+                                        '[role="menuitem"]', '[role="option"]',
+                                        'ytcp-ve', 'yt-formatted-string'
+                                    ];
+                                    function find(root) {{
+                                        for (const sel of MENU_SELS) {{
+                                            for (const el of root.querySelectorAll(sel)) {{
+                                                if ((el.innerText || el.textContent || '').trim().includes('{text}')) {{
+                                                    el.click(); return true;
+                                                }}
+                                            }}
+                                        }}
+                                        for (const el of root.querySelectorAll('*')) {{
+                                            if (el.shadowRoot) {{
+                                                if (find(el.shadowRoot)) return true;
+                                            }}
+                                        }}
+                                        return false;
+                                    }}
+                                    return find(document);
+                                }}
+                            """)
+                        except Exception as nav_err:
+                            # Click triggered navigation — page replaced, that's expected
+                            logger.info(f"YouTube: '{text}' JS click triggered navigation (expected) — waiting for upload dialog")
+                            await page.wait_for_timeout(4000)
+                            await _dismiss_identity_dialog(page)
+                            try:
+                                await page.wait_for_selector(
+                                    'ytcp-uploads-file-picker, ytcp-uploads-dialog',
+                                    state="attached", timeout=12000
+                                )
+                                upload_dialog_present = True
+                                upload_clicked = True
+                                logger.info("YouTube: upload dialog opened after navigation ✅")
+                            except Exception:
+                                pass
                             break
-                        except Exception:
-                            pass
+                        if js_r:
+                            upload_clicked = True
+                            logger.info(f"YouTube: clicked upload item via JS: '{text}'")
+                            break
 
                 if not upload_clicked:
                     logger.error("YouTube: could not click 'Upload video' menu item — saving debug screenshot")
@@ -325,15 +423,15 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             await page.wait_for_selector('#textbox', timeout=90000)
             await page.wait_for_timeout(3000)
 
-            # Title
+            # Title (force=True bypasses tp-yt-iron-overlay-backdrop)
             title_box = page.locator('#textbox').first
-            await title_box.click(click_count=3)
+            await title_box.click(click_count=3, force=True)
             await title_box.type(title[:100], delay=30)
 
             # Description
             try:
                 desc_box = page.locator('#textbox').nth(1)
-                await desc_box.click()
+                await desc_box.click(force=True)
                 await desc_box.type(description[:4500], delay=10)
             except Exception:
                 pass

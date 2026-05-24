@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   autoposter:
     build: .
@@ -12,6 +10,10 @@ services:
       - ./data:/app/data   # сессии, БД, медиа — персистентны
     shm_size: "1gb"        # нужно для Chromium
     init: true             # tini как PID 1 — убирает зомби-процессы
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"      # не даём контейнеру съесть все ядра (Hostinger throttling)
     logging:
       driver: "json-file"
       options:

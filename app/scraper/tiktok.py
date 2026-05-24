@@ -18,6 +18,13 @@ class TikTokVideo:
     thumbnail: Optional[str] = None
 
 
+def _id_to_int(video_id: str) -> int | None:
+    try:
+        return int(video_id)
+    except Exception:
+        return None
+
+
 async def get_new_videos(username: str, last_known_id: str = None) -> list[TikTokVideo]:
     """
     Скачивает новые видео с TikTok профиля.
@@ -41,17 +48,53 @@ async def get_new_videos(username: str, last_known_id: str = None) -> list[TikTo
     if not info:
         return []
 
-    new_videos = []
     entries = info.get("entries", [])
+    if not entries:
+        return []
 
-    for entry in entries:
+    playlist_debug = []
+    for idx, e in enumerate(entries[:30], start=1):
+        vid = str(e.get("id", ""))
+        upload_date = e.get("upload_date") or "-"
+        ts = e.get("timestamp") or "-"
+        playlist_debug.append(f"{idx}:{vid}@{upload_date}/{ts}")
+    logger.info("TikTok: playlist window (up to 30): " + ", ".join(playlist_debug))
+
+    head_ids = [str(e.get("id", "")) for e in entries[:5]]
+    logger.info(f"TikTok: top ids={head_ids}, last_known_id={last_known_id or '-'}")
+
+    candidates = entries
+    if last_known_id:
+        last_idx = next(
+            (i for i, e in enumerate(entries) if str(e.get("id", "")) == last_known_id),
+            -1,
+        )
+
+        if last_idx > 0:
+            candidates = entries[:last_idx]
+        elif last_idx == 0:
+            # last_known video can be pinned at the top; compare IDs instead of stopping immediately
+            logger.warning(
+                "TikTok: last_known_id is first in playlist, using ID comparison (possible pinned video)"
+            )
+            last_num = _id_to_int(last_known_id)
+            if last_num is not None:
+                candidates = [
+                    e for e in entries
+                    if (_id_to_int(str(e.get("id", ""))) or 0) > last_num
+                ]
+            else:
+                candidates = []
+        else:
+            # last_known not present in current window; keep all and dedupe in DB layer
+            candidates = entries
+
+    new_videos = []
+
+    for entry in candidates:
         vid_id = str(entry.get("id", ""))
         if not vid_id:
             continue
-
-        # Если дошли до уже известного видео — стоп
-        if last_known_id and vid_id == last_known_id:
-            break
 
         title = entry.get("title") or entry.get("description") or "TikTok video"
         title = title[:200]
@@ -77,7 +120,7 @@ async def _get_playlist_info(url: str) -> dict:
         "yt-dlp",
         "--dump-json",
         "--flat-playlist",
-        "--playlist-end", "10",        # только последние 10
+        "--playlist-end", "30",        # берем окно шире, чтобы не пропускать из-за pinned/серий постов
         "--no-warnings",
         url
     ]
@@ -122,6 +165,7 @@ async def _download_video(profile_url: str, video_id: str, username: str) -> Opt
         "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "--merge-output-format", "mp4",
         "--no-warnings",
+        "--postprocessor-args", "ffmpeg:-threads 2",  # ограничиваем CPU при merge
         "-o", output_tmpl,
         video_url
     ]
