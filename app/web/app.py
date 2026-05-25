@@ -295,6 +295,8 @@ def create_flask_app():
         if not session_path:
             return jsonify({"ok": False, "error": "Unknown platform"})
         ok = run_async(browser_mgr.save_session(session_path))
+        # Kill the browser after saving — prevents runaway Chrome processes
+        browser_mgr.stop_browser()
         return jsonify({"ok": ok})
 
     @app.route("/api/browser/stop", methods=["POST"])

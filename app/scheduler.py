@@ -143,6 +143,21 @@ async def _do_retry_failed_videos():
                 if all_success:
                     mark_error(video_id, None)
                     logger.info(f"🎉 Video fully published: {title[:60]}")
+                    # Delete media — no longer needed after all platforms done
+                    if file_path and os.path.exists(file_path):
+                        try:
+                            os.remove(file_path)
+                            logger.info(f"🗑️ Deleted media after retry: {file_path}")
+                        except Exception:
+                            pass
+                        base = file_path.rsplit(".", 1)[0]
+                        for suffix in ("_yt.mp4", "_ig.mp4", "_fb.mp4"):
+                            tmp = base + suffix
+                            if os.path.exists(tmp):
+                                try:
+                                    os.remove(tmp)
+                                except Exception:
+                                    pass
             
             # Пауза между видео в retry — снижаем пиковую нагрузку на CPU
             await asyncio.sleep(settings.POST_DELAY_SECONDS)
@@ -295,7 +310,7 @@ async def _do_check_and_post():
     if new_videos:
         set_setting("last_tiktok_id", new_videos[0].id)
 
-    cleanup_old_media(keep_last=30)
+    cleanup_old_media(keep_last=3)
 
 
 async def scheduler_loop():

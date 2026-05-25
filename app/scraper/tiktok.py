@@ -190,14 +190,15 @@ async def _download_video(profile_url: str, video_id: str, username: str) -> Opt
     return None
 
 
-def cleanup_old_media(keep_last: int = 50):
+def cleanup_old_media(keep_last: int = 3):
     """Удаляет старые медиафайлы, оставляя только последние N."""
     try:
         files = sorted(
             [os.path.join(settings.MEDIA_DIR, f) for f in os.listdir(settings.MEDIA_DIR)],
             key=os.path.getmtime
         )
-        for f in files[:-keep_last]:
+        to_delete = files[:-keep_last] if keep_last > 0 else files
+        for f in to_delete:
             os.remove(f)
             logger.debug(f"Deleted old media: {f}")
     except Exception as e:
