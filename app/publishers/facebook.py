@@ -9,6 +9,7 @@ import time
 import subprocess
 import logging
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+from app.publishers.lock import PUBLISH_LOCK
 from config import SESSION_FILES
 
 logger = logging.getLogger(__name__)
@@ -16,9 +17,6 @@ SESSION = SESSION_FILES["facebook"]
 
 # Cooldown file — written when FB returns error 1390008 (account temporarily restricted)
 _COOLDOWN_FILE = "/app/data/fb_cooldown_until.txt"
-
-# Глобальный lock — только одна публикация в Facebook одновременно
-_fb_lock = asyncio.Lock()
 
 
 def _check_fb_cooldown() -> bool:
@@ -242,9 +240,9 @@ async def post_video(video_path: str, caption: str, crosspost_to_instagram: bool
     # Fast cooldown check — skip transcoding and browser launch if restricted
     if _check_fb_cooldown():
         return False
-    source_path = video_path
-    video_path = _transcode_for_facebook(video_path)
-    async with _fb_lock:
+    async with PUBLISH_LOCK:
+        source_path = video_path
+        video_path = _transcode_for_facebook(video_path)
         return await _post_video_impl(video_path, caption, crosspost_to_instagram, source_path)
 
 

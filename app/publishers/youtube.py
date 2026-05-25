@@ -2,6 +2,7 @@ import os
 import subprocess
 import logging
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+from app.publishers.lock import PUBLISH_LOCK
 from config import SESSION_FILES
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
 
     video_path = _transcode_for_youtube(video_path)
 
-    async with async_playwright() as p:
+    async with PUBLISH_LOCK, async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         ctx = await browser.new_context(
             storage_state=SESSION,
