@@ -271,10 +271,7 @@ async def _post_video_impl(
             args=[
                 "--no-sandbox", "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-gpu",               # No GPU on VPS — swiftshader caused huge CPU spikes
-                "--disable-software-rasterizer",  # Disable SW rasterizer too
                 "--renderer-process-limit=1",  # Limit to 1 renderer process
-                "--disable-images",            # Reduce image decoding CPU load
             ]
         )
         ctx = await browser.new_context(
