@@ -311,7 +311,7 @@ async def _post_video_impl(
         page.on("response", _on_vupload_response)
         try:
             # Пробуем через Reels Creator
-            await page.goto("https://www.facebook.com/reels/create/", wait_until="domcontentloaded", timeout=30000)
+            await page.goto("https://www.facebook.com/reels/create/", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(4000)
 
             # Если редирект на логин — сессия протухла
@@ -689,7 +689,7 @@ async def _post_video_impl(
 async def _post_video_wall(page, video_path: str, caption: str, crosspost_to_instagram: bool = False) -> bool:
     """Fallback: публикует видео обычным постом на стене."""
     try:
-        await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=30000)
+        await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_timeout(3000)
 
         if "login" in page.url:

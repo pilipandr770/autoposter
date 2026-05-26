@@ -159,8 +159,10 @@ async def _do_retry_failed_videos():
                                 except Exception:
                                     pass
             
-            # Пауза между видео в retry — снижаем пиковую нагрузку на CPU
-            await asyncio.sleep(settings.POST_DELAY_SECONDS)
+            # Pause between retry videos — same breathing room as normal cycle
+            if True:  # always pause (could gate on index but simpler unconditional)
+                logger.info("⏸️ Pause 180s before next retry...")
+                await asyncio.sleep(180)
     
     except Exception as e:
         logger.error(f"Retry failed videos error: {e}", exc_info=True)
@@ -213,7 +215,16 @@ async def _do_check_and_post():
 
     logger.info(f"Found {len(new_videos)} new video(s)")
 
-    for video in new_videos:
+    # Process at most 3 videos per cycle — the rest are handled next cycle (30 min later).
+    # This prevents 60-min continuous Chrome bursts when many videos accumulate.
+    MAX_VIDEOS_PER_CYCLE = 3
+    if len(new_videos) > MAX_VIDEOS_PER_CYCLE:
+        logger.info(f"Limiting to {MAX_VIDEOS_PER_CYCLE} videos this cycle ({len(new_videos)} found)")
+        new_videos = new_videos[:MAX_VIDEOS_PER_CYCLE]
+
+    INTER_VIDEO_PAUSE = 180  # 3 min between videos — lets Chrome fully close, CPU cool down
+
+    for i, video in enumerate(new_videos):
         existing = get_video(video.id)
         if existing and all([
             not (get_setting("enable_instagram", "0") == "1") or existing.get("posted_ig"),
@@ -305,6 +316,11 @@ async def _do_check_and_post():
                         os.remove(tmp)
                     except Exception:
                         pass
+
+        # Pause between videos — lets Chrome fully close and CPU cool down
+        if i < len(new_videos) - 1:
+            logger.info(f"⏸️ Pause {INTER_VIDEO_PAUSE}s before next video...")
+            await asyncio.sleep(INTER_VIDEO_PAUSE)
 
     # Сохраняем ID последнего видео
     if new_videos:
