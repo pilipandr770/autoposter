@@ -131,10 +131,6 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
     async with PUBLISH_LOCK, async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=[
             "--no-sandbox", "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--disable-software-rasterizer",
-            "--renderer-process-limit=1",
-            "--disable-images",
         ])
         ctx = await browser.new_context(
             storage_state=SESSION,
@@ -169,7 +165,7 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
             # needing to find/click the CREATE button (which changes with each UI update).
             upload_dialog_present = False
             try:
-                await page.goto("https://www.youtube.com/upload", wait_until="domcontentloaded", timeout=30000)
+                await page.goto("https://www.youtube.com/upload", wait_until="domcontentloaded", timeout=60000)
                 await page.wait_for_timeout(4000)
                 if "accounts.google.com" in page.url or "signin" in page.url:
                     logger.error("YouTube: session expired after /upload redirect")
