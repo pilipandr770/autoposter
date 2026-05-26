@@ -746,7 +746,8 @@ async def _post_video_wall(page, video_path: str, caption: str, crosspost_to_ins
 
         await page.wait_for_selector('input[type="file"]', state="attached", timeout=8000)
         await page.locator('input[type="file"]').first.set_input_files(video_path)
-        await page.wait_for_timeout(10000)
+        # Wait for video to process — FB shows a progress bar, 30s is safer than 10s
+        await page.wait_for_timeout(30000)
 
         # Подпись
         for sel in ['div[contenteditable="true"]', 'textarea']:
@@ -762,24 +763,52 @@ async def _post_video_wall(page, video_path: str, caption: str, crosspost_to_ins
         if crosspost_to_instagram:
             await _ensure_instagram_crosspost(page)
 
+        # Facebook Reels flow: after video upload there may be a "Next/Далее" step
+        # before the final publish button appears. Click it if present.
+        for next_sel in [
+            'div[aria-label="Next"]',
+            'div[aria-label="Далі"]',
+            'div[aria-label="Далее"]',
+            'button:has-text("Next")',
+            'button:has-text("Далі")',
+            'button:has-text("Далее")',
+            '[role="button"]:has-text("Next")',
+            '[role="button"]:has-text("Далі")',
+            '[role="button"]:has-text("Далее")',
+        ]:
+            try:
+                btn = page.locator(next_sel).first
+                if await btn.is_visible(timeout=3000):
+                    await btn.click()
+                    logger.info(f"Facebook wall: clicked Next button ({next_sel})")
+                    await page.wait_for_timeout(3000)
+                    break
+            except Exception:
+                pass
+
         # Опубликовать
         post_clicked = False
         for sel in [
             'div[aria-label="Post"]',
             'div[aria-label="Опублікувати"]',
             'div[aria-label="Опубликовать"]',
+            'div[aria-label="Publish"]',
+            'div[aria-label="Опублікувати відео Reels"]',
             'button:has-text("Post")',
             'button:has-text("Опублікувати")',
             'button:has-text("Опубликовать")',
             'button:has-text("Публікація")',
+            'button:has-text("Publish")',
             '[role="button"]:has-text("Post")',
             '[role="button"]:has-text("Опублікувати")',
             '[role="button"]:has-text("Опубликовать")',
+            '[role="button"]:has-text("Publish")',
             'button[type="submit"]',
         ]:
             try:
                 await page.click(sel, timeout=5000)
                 post_clicked = True
+                logger.info(f"Facebook wall: clicked Post with selector: {sel}")
                 break
             except Exception:
                 pass

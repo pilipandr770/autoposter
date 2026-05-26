@@ -1,13 +1,14 @@
 #!/bin/bash
 # =============================================================================
 # deploy.sh — Первичный деплой autoposter на Hostinger VPS
-# Использование: bash deploy.sh
+# Использование: bash deploy.sh  (из папки проекта)
 # =============================================================================
 set -euo pipefail
 
 VPS_IP="187.124.6.120"
 VPS_USER="root"
 REMOTE_DIR="/opt/autoposter"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/hostinger_vps}"
 
 echo "============================================"
 echo "  Деплой autoposter → $VPS_IP"
@@ -15,7 +16,7 @@ echo "============================================"
 echo ""
 
 # ── Шаг 1: Синхронизируем файлы проекта ──────────────────────────────────
-echo "[1/4] Загружаем файлы на сервер..."
+echo "[1/3] Загружаем файлы на сервер..."
 rsync -avz --progress \
     --exclude='.git/' \
     --exclude='data/' \
@@ -23,31 +24,65 @@ rsync -avz --progress \
     --exclude='__pycache__/' \
     --exclude='*.pyc' \
     --exclude='*.pyo' \
+    -e "ssh -i ${SSH_KEY}" \
     ./ "${VPS_USER}@${VPS_IP}:${REMOTE_DIR}/"
 
-# ── Шаг 2: Удалённая настройка ────────────────────────────────────────────
+# ── Шаг 2: Копируем .env (если нет на сервере) ───────────────────────────
 echo ""
-echo "[2/4] Настраиваем файрвол и окружение..."
-ssh "${VPS_USER}@${VPS_IP}" bash <<'ENDSSH'
+echo "[2/3] Проверяем .env на сервере..."
+ssh -i "${SSH_KEY}" "${VPS_USER}@${VPS_IP}" bash <<'ENDSSH'
+    set -e
+    cd /opt/autoposter
+    if [ ! -f .env ]; then
+        echo "⚠️  .env не найден — создаём из шаблона. ЗАПОЛНИТЕ перед запуском!"
+        cp .env.example .env
+    else
+        echo "✅ .env уже существует"
+    fi
+ENDSSH
+
+# Загружаем локальный .env если есть
+if [ -f ".env" ]; then
+    echo "Загружаем локальный .env..."
+    scp -i "${SSH_KEY}" .env "${VPS_USER}@${VPS_IP}:${REMOTE_DIR}/.env"
+fi
+
+# ── Шаг 3: Открываем порты и запускаем Docker ────────────────────────────
+echo ""
+echo "[3/3] Запускаем Docker Compose..."
+ssh -i "${SSH_KEY}" "${VPS_USER}@${VPS_IP}" bash <<'ENDSSH'
     set -e
     cd /opt/autoposter
 
-    # Файрвол: закрываем прямой доступ к портам приложения
-    # (доступ только через Traefik на 80/443)
+    # Открываем порты в firewall
     ufw allow 22/tcp   comment 'SSH'     2>/dev/null || true
-    ufw allow 80/tcp   comment 'HTTP'    2>/dev/null || true
-    ufw allow 443/tcp  comment 'HTTPS'   2>/dev/null || true
-    ufw deny  5000/tcp comment 'Autoposter direct (blocked)' 2>/dev/null || true
-    ufw deny  6080/tcp comment 'noVNC direct (blocked)'      2>/dev/null || true
-    ufw --force enable
-    echo "✅ Файрвол настроен"
+    ufw allow 5000/tcp comment 'Autoposter Web UI' 2>/dev/null || true
+    ufw allow 6080/tcp comment 'noVNC'   2>/dev/null || true
+    ufw --force enable 2>/dev/null || true
 
-    # Создаём .env если не существует
-    if [ ! -f .env ]; then
-        cp .env.example .env
-        echo ""
-        echo "⚠️  ВАЖНО: Файл .env создан из шаблона."
-        echo "   Заполните переменную DOMAIN и WEB_SECRET_KEY:"
+    # Создаём папки для данных
+    mkdir -p data/db data/media data/sessions
+
+    # Собираем и запускаем
+    docker compose pull --ignore-pull-failures 2>/dev/null || true
+    docker compose up -d --build --remove-orphans
+
+    echo ""
+    echo "✅ Деплой завершён!"
+    echo "   Web UI:  http://${HOSTNAME:-VPS_IP}:5000"
+    echo "   noVNC:   http://${HOSTNAME:-VPS_IP}:6080/vnc.html"
+    echo ""
+    docker compose ps
+ENDSSH
+
+echo ""
+echo "============================================"
+echo "  Готово! Следующий шаг: войти в YouTube"
+echo "  http://$VPS_IP:6080/vnc.html → Connect"
+echo "  → открыть браузер → войти в YouTube Studio"
+echo "  → в Web UI: Сохранить сессию"
+echo "============================================"
+
         echo "   nano /opt/autoposter/.env"
         echo ""
     else

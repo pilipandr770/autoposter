@@ -4,16 +4,13 @@ services:
     container_name: autoposter
     restart: unless-stopped
     env_file: .env
-    # Порты не открываем напрямую — только через Traefik (docker-compose.prod.yml)
-    # Для локальной разработки: docker-compose.override.yml или флаг -p
+    ports:
+      - "5000:5000"   # Web UI
+      - "6080:6080"   # noVNC (встроенный браузер для сессий)
     volumes:
       - ./data:/app/data   # сессии, БД, медиа — персистентны
     shm_size: "1gb"        # нужно для Chromium
     init: true             # tini как PID 1 — убирает зомби-процессы
-    deploy:
-      resources:
-        limits:
-          cpus: "1.5"      # не даём контейнеру съесть все ядра (Hostinger throttling)
     logging:
       driver: "json-file"
       options:
