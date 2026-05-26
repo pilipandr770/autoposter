@@ -271,8 +271,10 @@ async def _post_video_impl(
             args=[
                 "--no-sandbox", "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
-                "--use-gl=swiftshader",        # Software OpenGL — keeps H.264 decoder active
-                "--disable-software-rasterizer=false",
+                "--disable-gpu",               # No GPU on VPS — swiftshader caused huge CPU spikes
+                "--disable-software-rasterizer",  # Disable SW rasterizer too
+                "--renderer-process-limit=1",  # Limit to 1 renderer process
+                "--disable-images",            # Reduce image decoding CPU load
             ]
         )
         ctx = await browser.new_context(
@@ -288,6 +290,17 @@ async def _post_video_impl(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         )
         page = await ctx.new_page()
+        # Block images, fonts, media and analytics — not needed for automation, saves CPU
+        async def _fb_block(route):
+            rt = route.request.resource_type
+            url = route.request.url
+            if rt in ("image", "font", "media"):
+                await route.abort()
+            elif any(x in url for x in ("google-analytics", "/tr?", "doubleclick", "facebook.com/plugins", "staticxx.facebook")):
+                await route.abort()
+            else:
+                await route.continue_()
+        await page.route("**/*", _fb_block)
         # Capture Facebook JS errors for diagnostics
         page.on("console", lambda msg: logger.info(f"FB console [{msg.type}]: {msg.text[:300]}") if msg.type in ("error", "warning") else None)
         page.on("pageerror", lambda err: logger.warning(f"FB page error: {err}"))

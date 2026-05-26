@@ -129,13 +129,30 @@ async def post_video(video_path: str, title: str, description: str) -> bool:
     video_path = _transcode_for_youtube(video_path)
 
     async with PUBLISH_LOCK, async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        browser = await p.chromium.launch(headless=True, args=[
+            "--no-sandbox", "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+            "--renderer-process-limit=1",
+            "--disable-images",
+        ])
         ctx = await browser.new_context(
             storage_state=SESSION,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 900},
         )
         page = await ctx.new_page()
+        # Block images, fonts, media and analytics — not needed for automation, saves CPU
+        async def _yt_block(route):
+            rt = route.request.resource_type
+            url = route.request.url
+            if rt in ("image", "font", "media"):
+                await route.abort()
+            elif any(x in url for x in ("google-analytics", "googletagmanager", "doubleclick", "adsense")):
+                await route.abort()
+            else:
+                await route.continue_()
+        await page.route("**/*", _yt_block)
         try:
             # Navigate to main Studio first to check session
             await page.goto("https://studio.youtube.com", wait_until="networkidle", timeout=60000)
