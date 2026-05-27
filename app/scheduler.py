@@ -6,7 +6,7 @@ from app.db import (
     get_setting, set_setting
 )
 from app.scraper.tiktok import get_new_videos, cleanup_old_media
-from app.publishers import youtube, telegram
+from app.publishers import youtube
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ async def _do_retry_failed_videos():
         logger.debug("_do_retry_failed_videos: Querying failed videos...")
         cursor.execute("""
             SELECT * FROM videos 
-            WHERE (posted_fb = 0 OR posted_ig = 0 OR posted_yt = 0 OR posted_tg = 0)
+            WHERE posted_yt = 0
             AND error IS NOT NULL
             AND error NOT LIKE 'Media file deleted%'
             ORDER BY created_at DESC
@@ -77,7 +77,6 @@ async def _do_retry_failed_videos():
                 continue
             
             yt_enabled = get_setting("enable_youtube", "1") == "1"
-            tg_enabled = get_setting("enable_telegram", "0") == "1"
 
             logger.info(f"Retrying: {title[:60]}")
 
@@ -88,13 +87,6 @@ async def _do_retry_failed_videos():
                     mark_posted(video_id, "youtube")
                     logger.info(f"✅ YouTube retry success: {title[:60]}")
                 await asyncio.sleep(settings.POST_DELAY_SECONDS)
-
-            # Telegram
-            if tg_enabled and not row["posted_tg"]:
-                ok = await telegram.post_video(file_path, title)
-                if ok:
-                    mark_posted(video_id, "telegram")
-                    logger.info(f"✅ Telegram retry success: {title[:60]}")
             
             # Очистить ошибку если все успешно
             conn = sqlite3.connect(settings.DB_PATH)
@@ -107,8 +99,6 @@ async def _do_retry_failed_videos():
             if updated:
                 all_success = True
                 if yt_enabled and not updated["posted_yt"]:
-                    all_success = False
-                if tg_enabled and not updated["posted_tg"]:
                     all_success = False
                 
                 if all_success:
@@ -197,10 +187,7 @@ async def _do_check_and_post():
 
     for i, video in enumerate(new_videos):
         existing = get_video(video.id)
-        if existing and all([
-            not (get_setting("enable_youtube", "1") == "1") or existing.get("posted_yt"),
-            not (get_setting("enable_telegram", "0") == "1") or existing.get("posted_tg"),
-        ]):
+        if existing and existing.get("posted_yt"):
             continue
 
         if not existing:
@@ -210,7 +197,7 @@ async def _do_check_and_post():
         errors = []
         posted_to = []
 
-        # YouTube
+        # YouTube (единственная платформа для TikTok-потока)
         yt_enabled = get_setting("enable_youtube", "1") == "1"
         if yt_enabled and not _posted(existing, "posted_yt"):
             ok = await youtube.post_video(video.file_path, video.title, video.title)
@@ -220,16 +207,6 @@ async def _do_check_and_post():
             else:
                 errors.append("YouTube")
             await asyncio.sleep(settings.POST_DELAY_SECONDS)
-
-        # Telegram
-        tg_enabled = get_setting("enable_telegram", "0") == "1"
-        if tg_enabled and not _posted(existing, "posted_tg"):
-            ok = await telegram.post_video(video.file_path, video.title)
-            if ok:
-                mark_posted(video.id, "telegram")
-                posted_to.append("telegram")
-            else:
-                errors.append("Telegram")
 
         if errors:
             mark_error(video.id, f"Failed: {', '.join(errors)}")
