@@ -31,17 +31,13 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Пути к файлам сессий (Playwright storageState)
+# Пути к файлам сессий
 SESSION_FILES = {
-    "instagram": f"{settings.SESSIONS_DIR}/instagram.json",
-    "youtube":   f"{settings.SESSIONS_DIR}/youtube.json",
-    "facebook":  f"{settings.SESSIONS_DIR}/facebook.json",
+    "youtube": f"{settings.SESSIONS_DIR}/youtube.json",
 }
 
 # Настройки платформ
 PLATFORMS = {
-    "instagram": {"name": "Instagram", "icon": "📸", "enabled": True},
-    "youtube":   {"name": "YouTube",   "icon": "▶️",  "enabled": True},
-    "facebook":  {"name": "Facebook",  "icon": "📘",  "enabled": True},
-    "telegram":  {"name": "Telegram",  "icon": "✈️",  "enabled": True},
+    "youtube":  {"name": "YouTube",  "icon": "▶️",  "enabled": True},
+    "telegram": {"name": "Telegram", "icon": "✈️",  "enabled": True},
 }

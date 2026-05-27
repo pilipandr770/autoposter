@@ -7,9 +7,6 @@ from config import settings, SESSION_FILES
 from app.db import (
     get_recent, get_setting, set_setting,
 )
-from app.publishers.instagram import login_instagram, login_instagram_2fa, is_native_session as instagram_is_native_session
-from app.publishers.youtube import login_youtube
-from app.publishers.facebook import login_facebook, login_facebook_2fa
 from app.browser_manager import BrowserManager
 
 logger = logging.getLogger(__name__)
@@ -34,40 +31,23 @@ def create_flask_app():
         finally:
             loop.close()
 
-    def _facebook_session_valid() -> bool:
-        """Возвращает True только если в facebook.json есть cookie c_user (реальный вход)."""
-        path = SESSION_FILES["facebook"]
-        if not os.path.exists(path):
-            return False
-        try:
-            import json
-            with open(path) as f:
-                data = json.load(f)
-            cookies = data.get("cookies", [])
-            return any(c.get("name") == "c_user" for c in cookies)
-        except Exception:
-            return False
-
     def _youtube_session_valid() -> bool:
-        """Возвращает True только если в youtube.json есть cookie SID (реальный вход)."""
-        path = SESSION_FILES["youtube"]
+        """Returns True if youtube_oauth.json exists with a refresh_token."""
+        import json
+        path = os.path.join(settings.SESSIONS_DIR, "youtube_oauth.json")
         if not os.path.exists(path):
             return False
         try:
-            import json
             with open(path) as f:
                 data = json.load(f)
-            cookies = data.get("cookies", [])
-            return any(c.get("name") == "SID" for c in cookies)
+            return bool(data.get("refresh_token"))
         except Exception:
             return False
 
     def platform_status():
         return {
-            "instagram": instagram_is_native_session(),
-            "youtube":   _youtube_session_valid(),
-            "facebook":  _facebook_session_valid(),
-            "telegram":  bool(get_setting("telegram_token") or settings.TELEGRAM_BOT_TOKEN),
+            "youtube":  _youtube_session_valid(),
+            "telegram": bool(get_setting("telegram_token") or settings.TELEGRAM_BOT_TOKEN),
         }
 
     # ── Страницы ──────────────────────────────────────────────────────────
@@ -80,12 +60,9 @@ def create_flask_app():
             "interval":         get_setting("check_interval") or str(settings.CHECK_INTERVAL_MINUTES),
             "tg_token":         get_setting("telegram_token") or settings.TELEGRAM_BOT_TOKEN,
             "tg_channel":       get_setting("telegram_channel") or settings.TELEGRAM_CHANNEL_ID,
-            "enable_instagram": get_setting("enable_instagram", "0") == "1",
             "enable_youtube":   get_setting("enable_youtube", "1") == "1",
-            "enable_facebook":  get_setting("enable_facebook", "1") == "1",
             "enable_telegram":  get_setting("enable_telegram", "0") == "1",
-            "enable_tg_to_ig":  get_setting("enable_tg_to_ig", "0") == "1",
-            "enable_tg_to_fb":  get_setting("enable_tg_to_fb", "1") == "1",
+            "enable_tg_to_yt":  get_setting("enable_tg_to_yt", "1") == "1",
         }
         vnc_ready = browser_mgr.is_ready()
         return render_template(
@@ -109,18 +86,12 @@ def create_flask_app():
             set_setting("telegram_channel", data["telegram_channel"].strip())
         if "check_interval" in data:
             set_setting("check_interval", str(data["check_interval"]))
-        if "enable_instagram" in data:
-            set_setting("enable_instagram", "1" if data["enable_instagram"] else "0")
         if "enable_youtube" in data:
             set_setting("enable_youtube", "1" if data["enable_youtube"] else "0")
-        if "enable_facebook" in data:
-            set_setting("enable_facebook", "1" if data["enable_facebook"] else "0")
         if "enable_telegram" in data:
             set_setting("enable_telegram", "1" if data["enable_telegram"] else "0")
-        if "enable_tg_to_ig" in data:
-            set_setting("enable_tg_to_ig", "1" if data["enable_tg_to_ig"] else "0")
-        if "enable_tg_to_fb" in data:
-            set_setting("enable_tg_to_fb", "1" if data["enable_tg_to_fb"] else "0")
+        if "enable_tg_to_yt" in data:
+            set_setting("enable_tg_to_yt", "1" if data["enable_tg_to_yt"] else "0")
         return jsonify({"ok": True})
 
     # ── API: Статус платформ ──────────────────────────────────────────────
@@ -128,71 +99,10 @@ def create_flask_app():
     def api_status():
         return jsonify(platform_status())
 
-    # ── API: Подключение Instagram ────────────────────────────────────────
-    @app.route("/api/connect/instagram", methods=["POST"])
-    def connect_instagram():
-        data = request.json or {}
-        username = data.get("username", "").strip()
-        password = data.get("password", "").strip()
-        if not username or not password:
-            return jsonify({"ok": False, "error": "Введи логин и пароль"})
-        result = run_async(login_instagram(username, password))
-        if result.get("error") == "2FA_REQUIRED":
-            _pending_2fa["instagram"] = {"username": username, "password": password}
-            return jsonify({"ok": False, "needs_2fa": True})
-        return jsonify(result)
-
-    @app.route("/api/connect/instagram/2fa", methods=["POST"])
-    def connect_instagram_2fa():
-        data = request.json or {}
-        code = data.get("code", "").strip()
-        pending = _pending_2fa.get("instagram")
-        if not pending or not code:
-            return jsonify({"ok": False, "error": "Нет активного 2FA сеанса"})
-        result = run_async(login_instagram_2fa(pending["username"], pending["password"], code))
-        if result.get("ok"):
-            _pending_2fa.pop("instagram", None)
-        return jsonify(result)
-
     # ── API: Подключение YouTube ──────────────────────────────────────────
     @app.route("/api/connect/youtube", methods=["POST"])
     def connect_youtube():
-        data = request.json or {}
-        username = data.get("username", "").strip()
-        password = data.get("password", "").strip()
-        if not username or not password:
-            return jsonify({"ok": False, "error": "Введи логин и пароль"})
-        result = run_async(login_youtube(username, password))
-        if result.get("error") == "2FA_REQUIRED":
-            _pending_2fa["youtube"] = {"username": username, "password": password}
-            return jsonify({"ok": False, "needs_2fa": True})
-        return jsonify(result)
-
-    # ── API: Подключение Facebook ─────────────────────────────────────────
-    @app.route("/api/connect/facebook", methods=["POST"])
-    def connect_facebook():
-        data = request.json or {}
-        username = data.get("username", "").strip()
-        password = data.get("password", "").strip()
-        if not username or not password:
-            return jsonify({"ok": False, "error": "Введи логин и пароль"})
-        result = run_async(login_facebook(username, password))
-        if result.get("error") == "2FA_REQUIRED":
-            _pending_2fa["facebook"] = {"username": username, "password": password}
-            return jsonify({"ok": False, "needs_2fa": True})
-        return jsonify(result)
-
-    @app.route("/api/connect/facebook/2fa", methods=["POST"])
-    def connect_facebook_2fa():
-        data = request.json or {}
-        code = data.get("code", "").strip()
-        pending = _pending_2fa.get("facebook")
-        if not pending or not code:
-            return jsonify({"ok": False, "error": "Нет активного 2FA сеанса"})
-        result = run_async(login_facebook_2fa(pending["username"], pending["password"], code))
-        if result.get("ok"):
-            _pending_2fa.pop("facebook", None)
-        return jsonify(result)
+        return jsonify({"ok": False, "error": "YouTube uses OAuth token file. No login needed."})
 
     # ── API: Подключение Telegram ─────────────────────────────────────────
     @app.route("/api/connect/telegram", methods=["POST"])

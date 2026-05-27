@@ -164,13 +164,11 @@ input:checked+.slider:before{transform:translateX(18px)}
       <div class="section-title">🔄 Потоки автопостинга</div>
       <div class="flow-card">
         <div class="flow-title">📹 TikTok → соцсети</div>
-        <div class="flow-row">TikTok <span class="flow-arrow">→</span> YouTube · Facebook</div>
-        <div class="flow-row" style="margin-top:4px;font-size:11px">Facebook <span class="flow-arrow">→</span> Instagram <span style="color:var(--muted)">(через Meta)</span></div>
+        <div class="flow-row">TikTok <span class="flow-arrow">→</span> YouTube · Telegram</div>
       </div>
       <div class="flow-card" style="margin-top:8px">
         <div class="flow-title">✈️ Telegram → соцсети</div>
-        <div class="flow-row">Telegram канал <span class="flow-arrow">→</span> Facebook</div>
-        <div class="flow-row" style="margin-top:4px;font-size:11px">Facebook <span class="flow-arrow">→</span> Instagram <span style="color:var(--muted)">(через Meta)</span></div>
+        <div class="flow-row">Telegram канал <span class="flow-arrow">→</span> YouTube</div>
       </div>
     </div>
 
@@ -178,20 +176,6 @@ input:checked+.slider:before{transform:translateX(18px)}
     <div>
       <div class="section-title">🔗 Платформы назначения</div>
       <div style="display:flex;flex-direction:column;gap:10px">
-
-        <!-- Instagram -->
-        <div class="platform-item {% if status.instagram %}ok{% else %}err{% endif %}">
-          <div class="p-icon icon-ig">📸</div>
-          <div class="p-info"><div class="p-name">Instagram</div><div class="p-sub">Reels</div></div>
-          <span class="p-status {% if status.instagram %}status-on{% else %}status-off{% endif %}">
-            {% if status.instagram %}✓ Активен{% else %}Offline{% endif %}
-          </span>
-        </div>
-        {% if not status.instagram %}
-        <button class="btn-sm btn-primary" onclick="openConnectModal('instagram')">🔗 Подключить Instagram</button>
-        {% else %}
-        <button class="btn-sm btn-danger" onclick="disconnect('instagram')">Отключить</button>
-        {% endif %}
 
         <!-- YouTube -->
         <div class="platform-item {% if status.youtube %}ok{% else %}err{% endif %}">
@@ -202,23 +186,9 @@ input:checked+.slider:before{transform:translateX(18px)}
           </span>
         </div>
         {% if not status.youtube %}
-        <button class="btn-sm btn-primary" onclick="connectViaBrowser('youtube', event)">🔗 Подключить YouTube</button>
+        <div style="font-size:11px;color:var(--muted);padding:2px 0">YouTube работает через OAuth токен. Загрузи youtube_oauth.json в /data/sessions/</div>
         {% else %}
         <button class="btn-sm btn-danger" onclick="disconnect('youtube')">Отключить</button>
-        {% endif %}
-
-        <!-- Facebook -->
-        <div class="platform-item {% if status.facebook %}ok{% else %}err{% endif %}">
-          <div class="p-icon icon-fb">📘</div>
-          <div class="p-info"><div class="p-name">Facebook</div><div class="p-sub">Reels + Видео</div></div>
-          <span class="p-status {% if status.facebook %}status-on{% else %}status-off{% endif %}">
-            {% if status.facebook %}✓ Активен{% else %}Offline{% endif %}
-          </span>
-        </div>
-        {% if not status.facebook %}
-        <button class="btn-sm btn-primary" onclick="connectViaBrowser('facebook', event)">🔗 Подключить Facebook</button>
-        {% else %}
-        <button class="btn-sm btn-danger" onclick="disconnect('facebook')">Отключить</button>
         {% endif %}
 
         <!-- Telegram -->
@@ -266,9 +236,8 @@ input:checked+.slider:before{transform:translateX(18px)}
         <h3>📊 Статистика</h3>
         <div class="stats-grid">
           <div class="stat"><div class="stat-val" id="total-count">—</div><div class="stat-lbl">Всего видео</div></div>
-          <div class="stat"><div class="stat-val" id="ig-count">—</div><div class="stat-lbl">Instagram</div></div>
           <div class="stat"><div class="stat-val" id="yt-count">—</div><div class="stat-lbl">YouTube</div></div>
-          <div class="stat"><div class="stat-val" id="fb-count">—</div><div class="stat-lbl">Facebook</div></div>
+          <div class="stat"><div class="stat-val" id="tg-count">—</div><div class="stat-lbl">Telegram</div></div>
         </div>
       </div>
 
@@ -280,9 +249,6 @@ input:checked+.slider:before{transform:translateX(18px)}
           нажми <strong style="color:#4ade80">💾 Сохранить сессию</strong>.
         </p>
         <div class="platform-btns">
-          <button class="plat-btn" onclick="openBrowser('instagram', event)">📸 Instagram</button>
-          <button class="plat-btn" onclick="openBrowser('youtube', event)">▶️ YouTube</button>
-          <button class="plat-btn" onclick="openBrowser('facebook', event)">📘 Facebook</button>
           <button class="plat-btn" onclick="openBrowser('tiktok', event)">🎵 TikTok</button>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px">
@@ -372,20 +338,14 @@ input:checked+.slider:before{transform:translateX(18px)}
 
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px">
       <div class="section-title">TikTok → платформы</div>
-      <div class="toggle-row"><span>📸 Instagram <span style="font-size:10px;color:var(--muted)">(через Meta)</span></span><label class="toggle"><input type="checkbox" id="s-ig" {% if cfg.enable_instagram %}checked{% endif %}><span class="slider"></span></label></div>
       <div class="toggle-row"><span>▶️ YouTube</span><label class="toggle"><input type="checkbox" id="s-yt" {% if cfg.enable_youtube %}checked{% endif %}><span class="slider"></span></label></div>
-      <div class="toggle-row"><span>📘 Facebook</span><label class="toggle"><input type="checkbox" id="s-fb" {% if cfg.enable_facebook %}checked{% endif %}><span class="slider"></span></label></div>
       <div class="toggle-row"><span>✈️ Telegram (отправка)</span><label class="toggle"><input type="checkbox" id="s-tg" {% if cfg.enable_telegram %}checked{% endif %}><span class="slider"></span></label></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px">
-      <div class="section-title">Telegram канал → Facebook</div>
+      <div class="section-title">Telegram канал → YouTube</div>
       <div class="toggle-row">
-        <span>✈️ Telegram → 📸 Instagram <span style="font-size:10px;color:var(--muted)">(через Meta)</span></span>
-        <label class="toggle"><input type="checkbox" id="s-tg-to-ig" {% if cfg.enable_tg_to_ig %}checked{% endif %}><span class="slider"></span></label>
-      </div>
-      <div class="toggle-row">
-        <span>✈️ Telegram → 📘 Facebook</span>
-        <label class="toggle"><input type="checkbox" id="s-tg-to-fb" {% if cfg.enable_tg_to_fb %}checked{% endif %}><span class="slider"></span></label>
+        <span>✈️ Telegram → ▶️ YouTube</span>
+        <label class="toggle"><input type="checkbox" id="s-tg-to-yt" {% if cfg.enable_tg_to_yt %}checked{% endif %}><span class="slider"></span></label>
       </div>
     </div>
 
@@ -404,9 +364,7 @@ let needs2fa = false;
 let currentBrowserPlatform = null;
 
 const PLATFORM_URLS = {
-  instagram: 'https://www.instagram.com/accounts/login/',
   youtube:   'https://accounts.google.com/signin',
-  facebook:  'https://www.facebook.com/login',
   tiktok:    'https://www.tiktok.com/login',
 };
 
@@ -421,32 +379,28 @@ async function loadHistory() {
     return;
   }
 
-  let total=0, ig=0, yt=0, fb=0;
+  let total=0, yt=0, tg=0;
   tbody.innerHTML = data.map(v => {
     total++;
-    if(v.posted_ig) ig++;
     if(v.posted_yt) yt++;
-    if(v.posted_fb) fb++;
+    if(v.posted_tg) tg++;
     const date = v.created_at ? v.created_at.substring(0,16).replace('T',' ') : '—';
     const src = v.tiktok_id.startsWith('tg_') ? '<span style="font-size:10px;color:var(--muted)">✈️ TG</span>' : '<span style="font-size:10px;color:var(--muted)">📹 TK</span>';
-    const igB = v.posted_ig ? '<span class="pb pb-ig">IG</span>' : '<span class="pb pb-off">IG</span>';
     const ytB = v.posted_yt ? '<span class="pb pb-yt">YT</span>' : '<span class="pb pb-off">YT</span>';
-    const fbB = v.posted_fb ? '<span class="pb pb-fb">FB</span>' : '<span class="pb pb-off">FB</span>';
     const tgB = v.posted_tg ? '<span class="pb pb-tg">TG</span>' : '<span class="pb pb-off">TG</span>';
-    const dot = v.error ? 'dot-err' : (v.posted_ig||v.posted_yt||v.posted_fb||v.posted_tg ? 'dot-ok' : 'dot-pend');
+    const dot = v.error ? 'dot-err' : (v.posted_yt||v.posted_tg ? 'dot-ok' : 'dot-pend');
     return `<tr>
       <td><span class="status-dot ${dot}"></span></td>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.title||'—'}</td>
       <td>${src}</td>
       <td style="color:var(--muted);white-space:nowrap">${date}</td>
-      <td><div class="platform-badges">${igB}${ytB}${fbB}${tgB}</div></td>
+      <td><div class="platform-badges">${ytB}${tgB}</div></td>
     </tr>`;
   }).join('');
 
   document.getElementById('total-count').textContent = total;
-  document.getElementById('ig-count').textContent = ig;
   document.getElementById('yt-count').textContent = yt;
-  document.getElementById('fb-count').textContent = fb;
+  document.getElementById('tg-count').textContent = tg;
 }
 
 // ── Connect Modal ─────────────────────────────────────────────────────────
@@ -454,9 +408,7 @@ function openConnectModal(platform) {
   currentPlatform = platform;
   needs2fa = false;
   const cfg = {
-    instagram: {title:'Подключить Instagram', desc:'Войди в Instagram аккаунт', label:'Instagram username'},
     youtube:   {title:'Подключить YouTube',   desc:'Войди через Google аккаунт',  label:'Google Email'},
-    facebook:  {title:'Подключить Facebook',  desc:'Войди в Facebook аккаунт',    label:'Email или телефон'},
   };
   const c = cfg[platform] || {title:platform, desc:'', label:'Логин'};
   document.getElementById('modal-title').textContent = c.title;
@@ -630,12 +582,9 @@ async function saveSettings() {
     telegram_token:   document.getElementById('s-tg-token').value.trim(),
     telegram_channel: document.getElementById('s-tg-channel').value.trim(),
     check_interval:   parseInt(document.getElementById('s-interval').value) || 30,
-    enable_instagram: document.getElementById('s-ig').checked,
     enable_youtube:   document.getElementById('s-yt').checked,
-    enable_facebook:  document.getElementById('s-fb').checked,
     enable_telegram:  document.getElementById('s-tg').checked,
-    enable_tg_to_ig:  document.getElementById('s-tg-to-ig').checked,
-    enable_tg_to_fb:  document.getElementById('s-tg-to-fb').checked,
+    enable_tg_to_yt:  document.getElementById('s-tg-to-yt').checked,
   };
   await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   showToast('Настройки сохранены ✅', 's');

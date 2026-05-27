@@ -6,7 +6,7 @@ from app.db import (
     get_setting, set_setting
 )
 from app.scraper.tiktok import get_new_videos, cleanup_old_media
-from app.publishers import instagram, youtube, telegram, facebook
+from app.publishers import youtube, telegram
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -76,22 +76,11 @@ async def _do_retry_failed_videos():
                 mark_error(video_id, "Media file deleted - skip retry")
                 continue
             
-            ig_enabled = get_setting("enable_instagram", "0") == "1"
-            fb_enabled = get_setting("enable_facebook", "1") == "1"
             yt_enabled = get_setting("enable_youtube", "1") == "1"
             tg_enabled = get_setting("enable_telegram", "0") == "1"
-            ig_via_facebook = ig_enabled and fb_enabled
-            
+
             logger.info(f"Retrying: {title[:60]}")
-            
-            # Instagram (только если не через Facebook)
-            if ig_enabled and not ig_via_facebook and not row["posted_ig"]:
-                ok = await instagram.post_reel(file_path, title)
-                if ok:
-                    mark_posted(video_id, "instagram")
-                    logger.info(f"✅ Instagram retry success: {title[:60]}")
-                await asyncio.sleep(settings.POST_DELAY_SECONDS)
-            
+
             # YouTube
             if yt_enabled and not row["posted_yt"]:
                 ok = await youtube.post_video(file_path, title, title)
@@ -99,21 +88,7 @@ async def _do_retry_failed_videos():
                     mark_posted(video_id, "youtube")
                     logger.info(f"✅ YouTube retry success: {title[:60]}")
                 await asyncio.sleep(settings.POST_DELAY_SECONDS)
-            
-            # Facebook
-            if fb_enabled and not row["posted_fb"]:
-                ok = await facebook.post_video(
-                    file_path,
-                    title,
-                    crosspost_to_instagram=ig_via_facebook,
-                )
-                if ok:
-                    mark_posted(video_id, "facebook")
-                    logger.info(f"✅ Facebook retry success: {title[:60]}")
-                    if ig_via_facebook:
-                        mark_posted(video_id, "instagram")
-                await asyncio.sleep(settings.POST_DELAY_SECONDS)
-            
+
             # Telegram
             if tg_enabled and not row["posted_tg"]:
                 ok = await telegram.post_video(file_path, title)
@@ -131,11 +106,7 @@ async def _do_retry_failed_videos():
             
             if updated:
                 all_success = True
-                if ig_enabled and not ig_via_facebook and not updated["posted_ig"]:
-                    all_success = False
                 if yt_enabled and not updated["posted_yt"]:
-                    all_success = False
-                if fb_enabled and not updated["posted_fb"]:
                     all_success = False
                 if tg_enabled and not updated["posted_tg"]:
                     all_success = False
@@ -151,14 +122,14 @@ async def _do_retry_failed_videos():
                         except Exception:
                             pass
                         base = file_path.rsplit(".", 1)[0]
-                        for suffix in ("_yt.mp4", "_ig.mp4", "_fb.mp4"):
+                        for suffix in ("_yt.mp4",):
                             tmp = base + suffix
                             if os.path.exists(tmp):
                                 try:
                                     os.remove(tmp)
                                 except Exception:
                                     pass
-            
+
             # Pause between retry videos — same breathing room as normal cycle
             if True:  # always pause (could gate on index but simpler unconditional)
                 logger.info("⏸️ Pause 180s before next retry...")
@@ -227,9 +198,7 @@ async def _do_check_and_post():
     for i, video in enumerate(new_videos):
         existing = get_video(video.id)
         if existing and all([
-            not (get_setting("enable_instagram", "0") == "1") or existing.get("posted_ig"),
             not (get_setting("enable_youtube", "1") == "1") or existing.get("posted_yt"),
-            not (get_setting("enable_facebook", "1") == "1") or existing.get("posted_fb"),
             not (get_setting("enable_telegram", "0") == "1") or existing.get("posted_tg"),
         ]):
             continue
@@ -241,21 +210,6 @@ async def _do_check_and_post():
         errors = []
         posted_to = []
 
-        # Instagram direct posting is skipped when Meta cross-post via Facebook is enabled.
-        # This avoids Instagram API/IP blocks and keeps one publication path.
-        ig_enabled = get_setting("enable_instagram", "0") == "1"
-        fb_enabled = get_setting("enable_facebook", "1") == "1"
-        ig_via_facebook = ig_enabled and fb_enabled
-
-        if ig_enabled and not ig_via_facebook and not _posted(existing, "posted_ig"):
-            ok = await instagram.post_reel(video.file_path, video.title)
-            if ok:
-                mark_posted(video.id, "instagram")
-                posted_to.append("instagram")
-            else:
-                errors.append("Instagram")
-            await asyncio.sleep(settings.POST_DELAY_SECONDS)
-
         # YouTube
         yt_enabled = get_setting("enable_youtube", "1") == "1"
         if yt_enabled and not _posted(existing, "posted_yt"):
@@ -265,25 +219,6 @@ async def _do_check_and_post():
                 posted_to.append("youtube")
             else:
                 errors.append("YouTube")
-            await asyncio.sleep(settings.POST_DELAY_SECONDS)
-
-        # Facebook
-        if fb_enabled and not _posted(existing, "posted_fb"):
-            ok = await facebook.post_video(
-                video.file_path,
-                video.title,
-                crosspost_to_instagram=ig_via_facebook,
-            )
-            if ok:
-                mark_posted(video.id, "facebook")
-                posted_to.append("facebook")
-                if ig_via_facebook:
-                    mark_posted(video.id, "instagram")
-                    posted_to.append("instagram")
-            else:
-                errors.append("Facebook")
-                if ig_via_facebook:
-                    errors.append("Instagram(via Facebook)")
             await asyncio.sleep(settings.POST_DELAY_SECONDS)
 
         # Telegram
@@ -309,7 +244,7 @@ async def _do_check_and_post():
                 logger.warning(f"Could not delete media file: {e}")
             # Remove transcoded copies created by publishers
             base = video.file_path.rsplit(".", 1)[0]
-            for suffix in ("_yt.mp4", "_ig.mp4", "_fb.mp4"):
+            for suffix in ("_yt.mp4",):
                 tmp = base + suffix
                 if os.path.exists(tmp):
                     try:

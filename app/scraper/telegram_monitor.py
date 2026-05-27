@@ -15,7 +15,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import Message
 
 from app.db import is_posted, save_video, mark_posted, mark_error, get_setting
-from app.publishers import instagram, facebook, youtube
+from app.publishers import youtube
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -66,14 +66,12 @@ async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: s
     if is_posted(tg_post_id):
         return
 
-    ig_enabled = get_setting("enable_tg_to_ig", "0") == "1"
-    fb_enabled = get_setting("enable_tg_to_fb", "1") == "1"
+    ig_enabled = False
+    fb_enabled = False
     yt_enabled = get_setting("enable_tg_to_yt", "1") == "1"
 
-    ig_via_facebook = ig_enabled and fb_enabled
-
-    if not ig_enabled and not fb_enabled and not yt_enabled:
-        logger.info("Telegram→ all platforms disabled, skipping")
+    if not yt_enabled:
+        logger.info("Telegram→ YouTube disabled, skipping")
         return
 
     caption = message.caption or ""
@@ -86,33 +84,6 @@ async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: s
 
     save_video(tg_post_id, caption[:200], file_path)
     errors = []
-
-    # Telegram → Instagram direct posting is skipped when Meta cross-post via Facebook is enabled.
-    if ig_enabled and not ig_via_facebook:
-        ok = await instagram.post_reel(file_path, caption)
-        if ok:
-            mark_posted(tg_post_id, "instagram")
-            logger.info(f"Telegram→Instagram: published post #{message.message_id} ✅")
-        else:
-            errors.append("Instagram")
-            logger.error(f"Telegram→Instagram: failed post #{message.message_id}")
-        await asyncio.sleep(settings.POST_DELAY_SECONDS)
-
-    # Telegram → Facebook
-    if fb_enabled:
-        ok = await facebook.post_video(file_path, caption, crosspost_to_instagram=ig_via_facebook)
-        if ok:
-            mark_posted(tg_post_id, "facebook")
-            logger.info(f"Telegram→Facebook: published post #{message.message_id} ✅")
-            if ig_via_facebook:
-                mark_posted(tg_post_id, "instagram")
-                logger.info(f"Telegram→Instagram(via Facebook): published post #{message.message_id} ✅")
-        else:
-            errors.append("Facebook")
-            logger.error(f"Telegram→Facebook: failed post #{message.message_id}")
-            if ig_via_facebook:
-                errors.append("Instagram(via Facebook)")
-        await asyncio.sleep(settings.POST_DELAY_SECONDS)
 
     # Telegram → YouTube
     if yt_enabled:
@@ -129,14 +100,14 @@ async def _handle_channel_post(message: Message, bot: Bot, allowed_channel_id: s
         mark_error(tg_post_id, f"Failed: {', '.join(errors)}")
 
     # Удаляем медиафайл после отправки
-    if file_path and os.path.exists(file_path) and (ig_enabled or fb_enabled or yt_enabled):
+    if file_path and os.path.exists(file_path) and yt_enabled:
         try:
             os.remove(file_path)
             logger.info(f"🗑️ Deleted TG media after posting: {file_path}")
         except Exception as e:
             logger.warning(f"Could not delete TG media file: {e}")
         base = file_path.rsplit(".", 1)[0]
-        for suffix in ("_fb.mp4", "_ig.mp4", "_yt.mp4"):
+        for suffix in ("_yt.mp4",):
             tmp = base + suffix
             if os.path.exists(tmp):
                 try:
