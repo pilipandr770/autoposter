@@ -1,3 +1,3 @@
-﻿from app.publishers import instagram, youtube, telegram, facebook
+﻿from app.publishers import youtube, telegram
 
-__all__ = ["instagram", "youtube", "telegram", "facebook"]
+__all__ = ["youtube", "telegram"]
